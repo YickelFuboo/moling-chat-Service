@@ -6,7 +6,7 @@ from app.constants.common import KBConstants, PDFParser, KnowledgeGraphMethod
 from app.infrastructure.database import get_db
 from app.models import KB
 from app.services.kb_service import KBService
-from app.schemas.kb import (
+from app.schemes.kb import (
     CreateKBRequest,
     UpdateKBRequest,
     ListKBRequest,

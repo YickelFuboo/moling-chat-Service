@@ -191,7 +191,7 @@ vector_expr = dealer.get_vector(text, embedding_model, topk=10)
 | graphrag/utils.py | search() | 图RAG工具搜索 | 中频 |
 | api/apps/sdk/doc.py | search() | SDK文档搜索 | 高频 |
 | api/apps/chunk_app.py | search() | 分块应用搜索 | 中频 |
-| api/db/services/document_service.py | search() | 文档服务搜索 | 中频 |
+| api/db/services/doc_service.py | search() | 文档服务搜索 | 中频 |
 
 **依赖关系：**
 - rag/nlp/rag_tokenizer.py → tokenize(), fine_grained_tokenize()

@@ -98,7 +98,7 @@ def kb_prompt(kbinfos, max_tokens):
     Returns:
         list: 格式化后的知识文本列表，按文档分组
     """
-    from app.services.document_service import DocumentService
+    from app.services.doc_service import DocumentService
 
     # 第一步：提取所有chunks的内容，并控制token数量
     knowledges = [ck["content_with_weight"] for ck in kbinfos["chunks"]]

@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
+import json
 from sqlalchemy import select, and_, func, desc, asc, or_
 import uuid
 from app.models import KB
@@ -9,7 +10,6 @@ from app.constants.common import KBConstants
 from app.infrastructure.database import get_db
 from app.infrastructure.llm.llms import embedding_factory
 from app.infrastructure.llm.llms import rerank_factory
-from app.services.tenant_service import TenantService
 from app.rag_core.utils import ParserType
 from app.services.common.doc_vector_store_service import DOC_STORE_CONN
 from app.rag_core.constants import PAGERANK_FLD
@@ -35,26 +35,14 @@ class KBService:
     ) -> KB:
         """创建知识库"""
         try:
-            # 如果没有指定租户，创建默认租户
+            # 检查关键信息
             if not tenant_id:
-                logging.info("未指定租户，创建默认租户")
-                # 使用用户ID生成唯一的租户名称，避免名称冲突
-                default_tenant_name = f"用户{owner_id}的默认租户"
-                default_tenant = await TenantService.create_tenant(
-                    session=session,
-                    name=default_tenant_name,
-                    description="系统自动创建的默认租户",
-                    owner_id=owner_id
-                )
-                tenant_id = default_tenant.id
-                logging.info(f"默认租户创建成功: {tenant_id}, 名称: {default_tenant_name}")
-            
-            # 验证租户权限
-            tenant = await TenantService.get_tenant_by_id(session, tenant_id)
-            if not tenant:
-                raise ValueError("租户不存在")
-            if not await TenantService.is_tenant_member(session, tenant_id, owner_id):
-                raise ValueError("不是租户成员")
+                logging.error("缺少租户信息")
+                raise ValueError("缺少租户信息")
+
+            if not owner_id:
+                logging.error("缺少Owner信息")
+                raise ValueError("缺少Owner信息")
             
             # 检查租户下知识库名称是否重复
             if await KBService._check_kb_name_exists_in_tenant(session, name, tenant_id):
@@ -65,7 +53,7 @@ class KBService:
                 try:
                     embd_provider_name, embd_model_name = embedding_factory.get_default_model()
                 except Exception as e:
-                    logging.error(f"❌ 获取默认嵌入模型失败: {e}")
+                    logging.error(f"获取默认嵌入模型失败: {e}")
                     raise
             
             # 如果没有指定重排序模型，从工厂获取默认值
@@ -73,7 +61,7 @@ class KBService:
                 try:
                     rerank_provider_name, rerank_model_name = rerank_factory.get_default_model()
                 except Exception as e:
-                    logging.error(f"❌ 获取默认重排序模型失败: {e}")
+                    logging.error(f"获取默认重排序模型失败: {e}")
                     raise
             
             # 如果没有指定解析器配置，使用默认配置
@@ -286,12 +274,6 @@ class KBService:
                 raise ValueError("不是知识库Owner")
             
             # 如果更新租户ID，验证租户权限
-            if "tenant_id" in update_data and update_data["tenant_id"]:
-                tenant = await TenantService.get_tenant_by_id(session, update_data["tenant_id"])
-                if not tenant:
-                    raise ValueError("租户不存在")
-                if not await TenantService.is_tenant_member(session, update_data["tenant_id"], owner_id):
-                    raise ValueError("不是租户成员")
 
             # 如果更新名称，检查租户下名称是否重复
             if "name" in update_data:
@@ -336,7 +318,6 @@ class KBService:
             logging.error(f"更新知识库失败: {e}")
             raise
 
-
     @ staticmethod
     def _check_and_update_model_info(kb: KB) -> KB:
         """
@@ -351,7 +332,6 @@ class KBService:
             logging.warning(f"重排序模型不支持，使用默认模型: {kb.rerank_provider_name}/{kb.rerank_model_name}")
 
         return kb
-
     
     @staticmethod
     async def delete_kb(
@@ -519,3 +499,41 @@ class KBService:
         except Exception as e:
             logging.error(f"更新知识库PageRank失败: {e}")
             return False
+
+    @staticmethod
+    async def get_field_map(session: AsyncSession, kb_ids: List[str]) -> Optional[dict]:
+        """
+        获取知识库的字段映射，用于SQL查询
+        
+        Args:
+            session: 数据库会话
+            kb_ids: 知识库ID列表
+            
+        Returns:
+            dict: 字段映射字典，如果知识库不支持SQL查询则返回None
+        """
+        try:
+            # 获取知识库信息
+            kbs = await KBService.get_kb_by_ids(session, kb_ids)
+            if not kbs:
+                return None
+            
+            # 构建字段映射配置
+            conf = {}
+            for kb in kbs:
+                if kb.parser_config:
+                    try:
+                        # 解析JSON字符串
+                        parser_config = json.loads(kb.parser_config)
+                        if "field_map" in parser_config:
+                            conf.update(parser_config["field_map"])
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logging.warning(f"解析知识库 {kb.id} 的parser_config失败: {e}")
+                        continue
+            
+            # 如果没有任何字段映射，返回None
+            return conf if conf else None
+            
+        except Exception as e:
+            logging.error(f"获取知识库字段映射失败: {e}")
+            return None

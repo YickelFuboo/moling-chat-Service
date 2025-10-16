@@ -1,4 +1,5 @@
 import asyncio
+from typing import Optional
 from enum import StrEnum
 from app.infrastructure.llm.llms import llm_factory, cv_factory, tts_factory, embedding_factory, rerank_factory, stt_factory
 
@@ -13,21 +14,21 @@ class LLMType(StrEnum):
     TTS = 'tts'
 
 class LLMBundle:
-    def __init__(self, tenant_id: str, llm_type: LLMType, llm_name=None, lang="Chinese"):
+    def __init__(self, tenant_id: str, llm_type: LLMType, provider: Optional[str] = None, model: Optional[str] = None, llm_name=None, lang="Chinese"):
         self.tenant_id = tenant_id
         self.llm_type = llm_type
         if llm_type == LLMType.CHAT:
-            self.mdl = llm_factory.create_model(language=lang)
+            self.mdl = llm_factory.create_model(provider=provider, model=model, language=lang)
         elif llm_type == LLMType.IMAGE2TEXT:
-            self.mdl = cv_factory.create_model(language=lang)
+            self.mdl = cv_factory.create_model(provider=provider, model=model, language=lang)
         elif llm_type == LLMType.TTS:
-            self.mdl = tts_factory.create_model()
+            self.mdl = tts_factory.create_model(provider=provider, model=model)
         elif llm_type == LLMType.EMBEDDING:
-            self.mdl = embedding_factory.create_model()
+            self.mdl = embedding_factory.create_model(provider=provider, model=model)
         elif llm_type == LLMType.RERANK:
-            self.mdl = rerank_factory.create_model()
+            self.mdl = rerank_factory.create_model(provider=provider, model=model)
         elif llm_type == LLMType.SPEECH2TEXT:
-            self.mdl = stt_factory.create_model()
+            self.mdl = stt_factory.create_model(provider=provider, model=model)
         else:
             raise ValueError(f"Unsupported model type: {llm_type.value}")
         

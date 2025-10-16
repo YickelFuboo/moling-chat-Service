@@ -166,7 +166,7 @@ class Settings(BaseSettings):
     max_concurrent_minio: int = Field(default=10, description="最大并发MinIO操作数量", env="MAX_CONCURRENT_MINIO")
     
     class Config:
-        env_file = ".env"
+        env_file = "env"
         env_file_encoding = "utf-8"
     
     @property

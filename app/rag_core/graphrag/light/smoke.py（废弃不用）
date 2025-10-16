@@ -22,7 +22,7 @@ import logging
 import trio
 
 from api.db import LLMType
-from app.services.document_service import DocumentService
+from app.services.doc_service import DocumentService
 from app.services.kb_service import KBService
 from api.db.services.llm_service import LLMBundle
 from api.db.services.user_service import TenantService

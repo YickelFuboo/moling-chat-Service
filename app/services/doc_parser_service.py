@@ -19,8 +19,10 @@ from app.infrastructure.llm.llms import llm_factory, embedding_factory
 from app.infrastructure.storage import STORAGE_CONN
 from app.infrastructure.vector_store import VECTOR_STORE_CONN
 from app.utils.progress_callback import ProgressCallback
+from app.models.document import ProcessStatus
 from app.services.common.doc_vector_store_service import DocVectorStoreService
 from app.services.common.file_service import FileService, FileUsage
+from app.services.doc_service import DocumentService
 from app.rag_core.constants import CHAT_LIMITER, CHUNK_LIMITER, MINIO_LIMITER, KG_LIMITER, TAG_FLD, PAGERANK_FLD, DOC_BULK_SIZE, EMBEDDING_BATCH_SIZE
 from app.rag_core.utils import ParserType, truncate, num_tokens_from_string
 from app.rag_core.chunk_api import CHUNK_FACTORY
@@ -37,7 +39,7 @@ from app.rag_core.llm_service import LLMBundle, LLMType
 class DocParserService:
     """文档解析服务类"""
 
-    def __init__(self, kb: KB, document: Document, user_id: str, delete_old: bool = False):
+    def __init__(self, kb: KB, document: Document, user_id: str, delete_old: bool = True):
         self.kb = kb
         self.document = document
         self.user_id = user_id
@@ -48,7 +50,7 @@ class DocParserService:
 
         # 创建模型实例
         self.chat_model = LLMBundle(self.kb.tenant_id, LLMType.CHAT)
-        self.embedding_model = LLMBundle(self.kb.tenant_id, LLMType.EMBEDDING)
+        self.embedding_model = LLMBundle(self.kb.tenant_id, LLMType.EMBEDDING, provider=self.kb.embd_provider_name, model=self.kb.embd_model_name)
 
         # 创建向量存储服务
         self.vector_store = DocVectorStoreService(VECTOR_STORE_CONN)
@@ -58,48 +60,40 @@ class DocParserService:
         # 创建回调处理对象
         self.callback = ProgressCallback()
 
-    async def parse_document(self):
+    async def parse_document(self) -> bool:
         """解析文档内容（异步任务）"""
         try:
             if not self.document:
                 raise ValueError("文档不存在")
             
+            # 清空旧的数据
+            if self.delete_old:
+                await DocumentService.delete_document_chunks(self.db_session, self.document.id)
+
             # 获取文件内容
             file_content = await FileService.get_file_content(
                 self.document.file_id,
                 FileUsage.DOCUMENT
             )
             
+            await DocumentService.update_document_status(self.db_session, self.document.id, ProcessStatus.CHUNKING)
             # 把文档按照页码拆解分为多个子任务
             sub_tasks = await self._create_parser_tasks(file_content) 
             # 多线程执行子任务
             for task in sub_tasks:
                 await self._execute_parser_task(file_content, task)
-            """
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = [
-                    executor.submit(
-                        self._execute_parser_task, 
-                        file_content, 
-                        task
-                    ) for task in sub_tasks
-                ]
-                results = [future.result() for future in futures]
-            """
 
+            # 执行RAPTOR任务
+            await DocumentService.update_document_status(self.db_session, self.document.id, ProcessStatus.RAPTORING)
             if self.parser_config.get("raptor", {}).get("use_raptor", False):
                 await self._execute_raptor_task()
 
+            # 执行GraphRAG任务
+            await DocumentService.update_document_status(self.db_session, self.document.id, ProcessStatus.GRAPHING)
             if self.parser_config.get("graphrag", {}).get("use_graphrag", False):
                 await self._execute_graphrag_task()
 
-            # 返回结果
-            return {
-                "status": "success",
-                #"results": results,
-                #"task_count": len(results)
-            }
-            
+            return True            
         except Exception as e:
             logging.error(f"文档解析失败: {self.document.id}, 错误: {e}")
             raise
@@ -176,7 +170,7 @@ class DocParserService:
             logging.error(f"创建子任务失败: {e}")
             raise
 
-    async def _execute_parser_task(self, file_content: bytes, task: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute_parser_task(self, file_content: bytes, task: Dict[str, Any]):
         """
         执行单个子解析任务
         
@@ -191,7 +185,6 @@ class DocParserService:
         logging.info(f"开始执行子解析任务: 文档 {self.document.id}, 页数范围: {task['from_page']}-{task['to_page']}")
         start_ts = timer()
         try: 
-            
             # 创建向量存储空间
             vector_size = await self.embedding_model.get_embedding_vector_size()
             await self.vector_store.createIdx(self.kb.tenant_id, self.kb.id, vector_size)
@@ -636,55 +629,17 @@ class DocParserService:
         """
 
         try: 
-            chunk_count = len(set([chunk["id"] for chunk in chunks]))
-            start_ts = timer()
-            """
-            async def delete_image(kb_id, chunk_id):
-                try:
-                    async with MINIO_LIMITER:
-                        STORAGE_CONN.delete(kb_id, chunk_id)
-                except Exception:
-                    logging.exception(
-                        "Deleting image of chunk {}/{}/{} got exception".format(task.get("location", ""), task.get("name", ""), chunk_id))
-                    raise
-            """
             doc_store_result = ""
             for b in range(0, len(chunks), DOC_BULK_SIZE):
                 doc_store_result = await self.vector_store.insert(
                     chunks[b:b + DOC_BULK_SIZE], self.kb.tenant_id, self.kb.id
-                )
-
-                # 每处理128个chunks更新一次进度，进度范围：0.8-0.9，表示存储阶段占总进度的10%
-                """if b % 128 == 0:
-                    progress_ratio = 0.8 + 0.1 * (b + 1) / len(chunks)
-                    logging.info(f"Storage progress: {progress_ratio*100:.1f}%")
-                """   
+                ) 
 
                 # 如果存储返回错误结果，记录错误信息并抛出异常（doc_store_result为空表示成功，非空表示有错误）
                 if doc_store_result:
                     error_message = f"Insert chunk error: {doc_store_result}, please check log file and Elasticsearch/Infinity status!"
                     logging.error(error_message)
                     raise Exception(error_message)
-                    
-                # 更新任务进展
-                """
-                chunk_ids = [chunk["id"] for chunk in chunks[:b + DOC_BULK_SIZE]]
-                chunk_ids_str = " ".join(chunk_ids)
-
-                try:
-                    TaskService.update_chunk_ids(task["id"], chunk_ids_str)
-            except Exception as e:
-                logging.warning(f"do_handle_task update_chunk_ids failed since task {task['id']} is unknown.")
-                # 删除已插入的chunks
-                doc_store_result = await self.vector_store.delete({"id": chunk_ids}, self.kb.tenant_id, self.kb.id)
-                # 删除相关的图片文件
-                tasks = [delete_image(self.kb.id, chunk_id) for chunk_id in chunk_ids]
-                await asyncio.gather(*tasks, return_exceptions=True)
-                logging.error(f"Chunk updates failed since task {task['id']} is unknown.")
-                return
-
-            DocumentService.increment_chunk_num(self.document.id, self.kb.id, token_count, chunk_count, 0)
-            """
             
             return True
             
@@ -776,13 +731,12 @@ class DocParserService:
             logging.error(f"RAPTOR任务执行失败: {e}")
             raise
 
-    async def _execute_graphrag_task(self) -> None:
+    async def _execute_graphrag_task(self) -> bool:
         """
         执行GraphRAG任务
-        
-        Args:
-            task: 任务配置信息
-            progress_callback: 进度回调函数
+
+        Returns:
+            bool: 是否成功
         """
         try:
             # 检查LLM模型是否足够强大

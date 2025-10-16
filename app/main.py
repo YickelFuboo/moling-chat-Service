@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.logger import set_log_level, setup_logging
-from app.api.v1 import kb, document, tenant, models, qa
+from app.api.v1 import kb, document, models, qa
 from app.config.settings import settings, APP_NAME, APP_VERSION, APP_DESCRIPTION
 from app.middleware.logging import logging_middleware
 from app.infrastructure.celery.app import celery_app
@@ -35,7 +35,6 @@ setup_logging()
 # 注册所有路由器
 app.include_router(kb.router, prefix="/api/v1", tags=["知识库管理"])
 app.include_router(document.router, prefix="/api/v1", tags=["文档管理"])
-app.include_router(tenant.router, prefix="/api/v1", tags=["租户管理"])
 app.include_router(models.router, prefix="/api/v1", tags=["模型管理"])
 app.include_router(qa.router, prefix="/api/v1", tags=["问答服务"])
 

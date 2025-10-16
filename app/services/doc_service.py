@@ -19,70 +19,18 @@ from sqlalchemy import select, and_, or_, func, desc, asc
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from app.models import Document, KB
+from app.models.document import ProcessStatus
 from app.rag_core.utils import ParserType
 from app.rag_core.chunk_api import CHUNK_FACTORY
 from app.constants.common import DocumentConstants, FileType, FileSource
-from app.services.common.doc_parser_service import DocParserService
 from app.services.kb_service import KBService
-from app.tasks.document_tasks import parse_document_task
-from app.schemas.document import FileUploadResult
+from app.schemes.document import FileUploadResult
 from app.services.common.file_service import FileService, FileUsage
+from app.services.common.doc_vector_store_service import DOC_STORE_CONN
 
 
 class DocumentService:
     """文档服务类"""
-
-    @staticmethod
-    async def create_document(
-        session: AsyncSession,
-        kb_id: str,
-        name: str,
-        doc_type: FileType,
-        suffix: str,
-        file_id: str,
-        size: int,
-        source_type: FileSource,
-        parser_id: ParserType,
-        parser_config: Optional[str] = None,
-        thumbnail_id: Optional[str] = None,
-        created_by: Optional[str] = None
-    ) -> Document:
-        """创建文档"""
-        try:
-            existing_doc = await DocumentService.get_document_by_name(
-                session, kb_id, name
-            )
-            if existing_doc:
-                raise ValueError(f"文档名称 '{name}' 在知识库中已存在")
-            
-            document = Document(
-                id=str(uuid.uuid4()),
-                kb_id=kb_id,
-                name=name,
-                type=doc_type.value,
-                suffix=suffix,
-                file_id=file_id,
-                size=size,
-                parser_id=parser_id.value,
-                parser_config=parser_config,
-                source_type=source_type.value,
-                created_by=created_by,
-                thumbnail_id=thumbnail_id
-            )
-            
-            session.add(document)
-            await session.commit()
-            await session.refresh(document)
-            
-            await DocumentService._update_kb_doc_count(session, kb_id)
-            
-            logging.info(f"创建文档成功: {document.id}")
-            return document
-            
-        except Exception as e:
-            await session.rollback()
-            logging.error(f"创建文档失败: {e}")
-            raise
 
     @staticmethod
     async def upload_document_to_kb(
@@ -170,22 +118,12 @@ class DocumentService:
             await session.refresh(document)            
             await DocumentService._update_kb_doc_count(session, kb.id)
             
-            # 异步触发文档解析任务
-            # task = parse_document_task.delay(document.id, created_by, True)
-            # await parse_document_task(document.id, created_by, True)
-            docparser = DocParserService(kb, document, created_by, True)
-
-            logging.info(f"⚡ [CELERY] 开始执行文档解析...")
-            # 运行异步任务
-            result = await docparser.parse_document()
-            
             logging.info(f"文档上传成功: {final_filename}")
             
             return FileUploadResult(
                 filename=filename,
                 success=True,
                 document_id=document.id,
-                #task_id=task.id
             )
             
         except Exception as e:
@@ -434,253 +372,6 @@ class DocumentService:
         except Exception as e:
             logging.error(f"生成PPT缩略图失败: {filename}, 错误: {e}")
             return None
-    
-    @staticmethod
-    async def _chunk_document_content(
-        document: Document,
-        file_content: bytes,
-        from_page: int,
-        to_page: int,
-        task_config: Dict[str, Any],
-        user_id: str
-    ) -> Dict[str, Any]:
-        """
-        使用Chunker进行文档内容切片
-        
-        Args:
-            document: 文档对象
-            file_content: 文件内容
-            from_page: 起始页/行
-            to_page: 结束页/行
-            task_config: 任务配置
-            user_id: 用户ID
-            
-        Returns:
-            Dict[str, Any]: 切片结果
-        """
-        try:
-            # 从工厂获取对应的Chunker
-            
-            chunker = CHUNK_FACTORY[document.parser_id]
-            if not chunker:
-                raise ValueError(f"未找到对应的Chunker: {document.parser_id}")
-            
-            # 准备切片参数
-            chunk_params = {
-                "name": document.name,
-                "binary": file_content,
-                "from_page": from_page,
-                "to_page": to_page,
-                "lang": task_config.get("language", "zh"),  # 默认中文
-                "kb_id": document.kb_id,
-                "parser_config": document.parser_config,
-                "tenant_id": user_id
-            }
-            
-            # 定义进度回调函数
-            def progress_callback(progress: float, message: str = ""):
-                logging.info(f"文档切片进度: {progress:.2%} - {message}")
-            
-            # 调用Chunker进行切片
-            chunk_result = await chunker.chunk(
-                name=chunk_params["name"],
-                binary=chunk_params["binary"],
-                from_page=chunk_params["from_page"],
-                to_page=chunk_params["to_page"],
-                lang=chunk_params["lang"],
-                callback=progress_callback,
-                kb_id=chunk_params["kb_id"],
-                parser_config=chunk_params["parser_config"],
-                tenant_id=chunk_params["tenant_id"]
-            )
-            
-            logging.info(f"文档切片完成: {document.id}, 页数范围: {from_page}-{to_page}, 切片数: {len(chunk_result.get('chunks', []))}")
-            
-            return chunk_result
-            
-        except Exception as e:
-            logging.error(f"文档切片失败: {document.id}, 页数范围: {from_page}-{to_page}, 错误: {e}")
-            raise
-    
-    @staticmethod
-    async def _execute_parser_with_threading(
-        document: Document,
-        chunk_result: Dict[str, Any],
-        task_config: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        使用多线程执行后续解析操作
-        
-        Args:
-            document: 文档对象
-            chunk_result: 切片结果
-            task_config: 任务配置
-            
-        Returns:
-            Dict[str, Any]: 解析结果
-        """
-        try:
-            # 获取事件循环
-            loop = asyncio.get_event_loop()
-            
-            # 从切片结果中获取chunks
-            chunks = chunk_result.get("chunks", [])
-            if not chunks:
-                return {
-                    "status": "success",
-                    "message": "没有可处理的切片",
-                    "chunks": [],
-                    "embeddings": [],
-                    "metadata": chunk_result.get("metadata", {})
-                }
-            
-            # 使用线程池执行计算密集型操作
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                
-                # 并行执行向量化操作
-                future_embedding = executor.submit(
-                    DocumentService._generate_embeddings_sync,
-                    chunks, document
-                )
-                
-                # 等待向量化结果
-                embedding_result = await loop.run_in_executor(executor, future_embedding.result)
-                
-                # 并行执行存储操作
-                future_storage = executor.submit(
-                    DocumentService._store_chunks_sync,
-                    chunks, document, embedding_result
-                )
-                
-                # 等待存储结果
-                storage_result = await loop.run_in_executor(executor, future_storage.result)
-                
-                return {
-                    "status": "success",
-                    "chunks": chunks,
-                    "embeddings": embedding_result,
-                    "storage": storage_result,
-                    "metadata": chunk_result.get("metadata", {}),
-                    "chunk_count": len(chunks),
-                    "token_count": embedding_result.get("token_count", 0),
-                    "vector_size": embedding_result.get("vector_size", 0)
-                }
-                
-        except Exception as e:
-            logging.error(f"多线程解析执行失败: {e}")
-            raise
-    
-    @staticmethod
-    def _parse_document_sync(
-        document: Document,
-        file_content: bytes,
-        from_page: int,
-        to_page: int,
-        task_config: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        同步执行文档解析（在线程中运行）
-        
-        Args:
-            document: 文档对象
-            file_content: 文件内容
-            from_page: 起始页/行
-            to_page: 结束页/行
-            task_config: 任务配置
-            
-        Returns:
-            Dict[str, Any]: 解析结果
-        """
-        try:
-            # 这里调用现有的解析逻辑
-            # 注意：由于是在线程中运行，不能使用异步操作
-            # 需要确保所有依赖都是同步的
-            
-            # 根据文档类型选择解析器
-            if document.type == "pdf":
-                # PDF 解析逻辑
-                pass
-            elif document.type == "excel":
-                # Excel 解析逻辑
-                pass
-            else:
-                # 其他类型解析逻辑
-                pass
-            
-            # 临时返回示例数据
-            return {
-                "chunks": [],
-                "metadata": {
-                    "from_page": from_page,
-                    "to_page": to_page,
-                    "document_type": document.type
-                }
-            }
-            
-        except Exception as e:
-            logging.error(f"同步文档解析失败: {e}")
-            raise
-    
-    @staticmethod
-    def _generate_embeddings_sync(
-        chunks: List[Dict[str, Any]],
-        document: Document
-    ) -> Dict[str, Any]:
-        """
-        同步生成向量嵌入（在线程中运行）
-        
-        Args:
-            chunks: 文档切片列表
-            document: 文档对象
-            
-        Returns:
-            Dict[str, Any]: 向量化结果
-        """
-        try:
-            # 这里实现向量化逻辑
-            # 注意：由于是在线程中运行，不能使用异步操作
-            
-            # 临时返回示例数据
-            return {
-                "token_count": len(chunks) * 100,  # 示例
-                "vector_size": 768,  # 示例
-                "embeddings": []
-            }
-            
-        except Exception as e:
-            logging.error(f"同步向量化失败: {e}")
-            raise
-    
-    @staticmethod
-    def _store_chunks_sync(
-        chunks: List[Dict[str, Any]],
-        document: Document,
-        embedding_result: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        同步存储切片到向量数据库（在线程中运行）
-        
-        Args:
-            chunks: 文档切片列表
-            document: 文档对象
-            embedding_result: 向量化结果
-            
-        Returns:
-            Dict[str, Any]: 存储结果
-        """
-        try:
-            # 这里实现存储逻辑
-            # 注意：由于是在线程中运行，不能使用异步操作
-            
-            # 临时返回示例数据
-            return {
-                "stored_count": len(chunks),
-                "storage_status": "success"
-            }
-            
-        except Exception as e:
-            logging.error(f"同步存储失败: {e}")
-            raise
 
     @staticmethod
     async def get_documents_by_kb_id(
@@ -690,7 +381,7 @@ class DocumentService:
         page_size: int = 20,
         keywords: str = "",
         order_by: str = "created_at",
-        desc: bool = True
+        desc_order: bool = True
     ) -> Tuple[List[Document], int]:
         """根据知识库ID获取文档列表"""
         try:
@@ -711,12 +402,12 @@ class DocumentService:
             
             if hasattr(Document, order_by):
                 order_column = getattr(Document, order_by)
-                if desc:
+                if desc_order:
                     query = query.order_by(desc(order_column))
                 else:
                     query = query.order_by(asc(order_column))
             else:
-                if desc:
+                if desc_order:
                     query = query.order_by(desc(Document.created_at))
                 else:
                     query = query.order_by(asc(Document.created_at))
@@ -737,7 +428,6 @@ class DocumentService:
     async def update_document(
         session: AsyncSession,
         doc_id: str,
-        name: Optional[str] = None,
         description: Optional[str] = None
     ) -> Document:
         """更新文档信息"""
@@ -745,16 +435,7 @@ class DocumentService:
             document = await DocumentService.get_document_by_id(session, doc_id)
             if not document:
                 raise ValueError("文档不存在")
-            
-            if name is not None:
-                if name != document.name:
-                    existing_doc = await DocumentService.get_document_by_name(
-                        session, document.kb_id, name
-                    )
-                    if existing_doc:
-                        raise ValueError(f"文档名称 '{name}' 在知识库中已存在")
-                document.name = name
-            
+
             if description is not None:
                 document.description = description
             
@@ -768,31 +449,99 @@ class DocumentService:
             await session.rollback()
             logging.error(f"更新文档失败: {e}")
             raise
+
+    @staticmethod
+    async def update_document_file(
+        session: AsyncSession,
+        doc_id: str,
+        file: UploadFile,
+        created_by: str = None
+    ) -> Document:
+        """通过替换文件来更新文档"""
+        try:
+            # 1. 获取原文档信息
+            old_document = await DocumentService.get_document_by_id(session, doc_id)
+            if not old_document:
+                raise ValueError("文档不存在")
+            
+            # 2. 获取知识库信息
+            kb = await KBService.get_kb_by_id(session, old_document.kb_id)
+            if not kb:
+                raise ValueError("知识库不存在")
+            
+            # 3. 先删除原文档及相关数据
+            await DocumentService.delete_document_by_id(session, doc_id)
+            
+            # 4. 创建新文档
+            result = await DocumentService.upload_document_to_kb(
+                session=session,
+                kb=kb,
+                file=file,
+                created_by=created_by
+            )
+            if not result.success or not result.document_id:
+                raise ValueError(result.error)
+
+            # 5. 获取新文档并更新描述
+            new_document = await DocumentService.get_document_by_id(session, result.document_id)
+            if not new_document:
+                raise ValueError("新文档创建失败")
+
+            # 6. 更新新文档的描述与原文档一致
+            new_document.description = old_document.description
+            await session.commit()
+            await session.refresh(new_document)
+            
+            logging.info(f"更新文档文件成功: {doc_id}")
+            return new_document
+            
+        except Exception as e:
+            await session.rollback()
+            logging.error(f"更新文档文件失败: {e}")
+            raise
     
     @staticmethod
-    async def delete_document(
+    async def delete_document_by_id(
         session: AsyncSession,
         doc_id: str
     ):
-        """删除文档"""
+        """删除文档及其相关数据"""
         try:
             document = await DocumentService.get_document_by_id(session, doc_id)
             if not document:
                 raise ValueError("文档不存在")
             
-            # 这里可以添加清除向量数据、分块数据等的逻辑
-            # 具体实现取决于您的向量存储方案
+            # 1. 删除向量存储中的chunks
+            await DocumentService.delete_document_chunks(session, doc_id)
             
+            # 2. 删除文件存储中的文件
+            if document.file_id:
+                try:
+                    await FileService.delete_file(document.file_id, FileUsage.DOCUMENT)
+                    logging.info(f"删除文档文件成功: {document.file_id}")
+                except Exception as e:
+                    logging.error(f"删除文档文件失败: {e}")
+            
+            # 3. 删除缩略图
+            if document.thumbnail_id:
+                try:
+                    await FileService.delete_file(document.thumbnail_id, FileUsage.DOCUMENT_THUMBNAIL)
+                    logging.info(f"删除缩略图成功: {document.thumbnail_id}")
+                except Exception as e:
+                    logging.error(f"删除缩略图失败: {e}")
+            
+            # 4. 删除文档记录
             await session.delete(document)
             await session.commit()
             
+            # 5. 更新知识库文档数量
             await DocumentService._update_kb_doc_count(session, document.kb_id)
             
-            logging.info(f"删除文档成功: {doc_id}")
+            logging.info(f"删除文档及相关数据成功: {doc_id}")
             
         except Exception as e:
             await session.rollback()
-            logging.error(f"删除文档失败: {e}")
+            logging.error(f"删除文档及相关数据失败: {e}")
             raise
     
     @staticmethod
@@ -858,50 +607,229 @@ class DocumentService:
             kb = kb_result.scalar_one_or_none()
             
             if kb:
-                kb.document_count = doc_count
+                kb.doc_num = doc_count
                 await session.commit()
                 
         except Exception as e:
             logging.error(f"更新知识库文档数量失败: {e}")
             await session.rollback() 
-    
-    @staticmethod
-    def _build_storage_path(kb: KB) -> str:
-        """构造知识库文档存储路径"""
-        if kb.team_id:
-            return f"{kb.team_id}/{kb.name}"
-        else:
-            return f"{kb.name}"
 
     @staticmethod
-    async def cancel_celery_tasks(
-        session: AsyncSession,
+    async def get_document_chunk_count(
+        session: AsyncSession, 
         doc_id: str
-    ):
-        """取消文档的Celery任务"""
+    ) -> int:
+        """获取文档的切片数量"""
         try:
-            # 这里可以添加取消Celery任务的逻辑
-            # 例如：通过celery.control.revoke()取消任务
-            # 或者通过Redis直接操作任务队列
+            # 获取文档信息以获取kb_id
+            document = await DocumentService.get_document_by_id(session, doc_id)
+            if not document:
+                return 0
             
-            logging.info(f"已取消文档 {doc_id} 的Celery任务")
+            # 获取知识库信息以获取tenant_id
+            kb = await KBService.get_kb_by_id(session, document.kb_id)
+            if not kb:
+                return 0
+            
+            tenant_id = kb.tenant_id
+            
+            # 构建查询条件
+            condition = {"doc_id": doc_id}
+            
+            # 使用向量存储服务进行聚合查询
+            result = await DOC_STORE_CONN.search(
+                selectFields=["doc_id"],
+                highlightFields=[],
+                condition=condition,
+                matchExprs=[],
+                orderBy=None,
+                offset=0,
+                limit=0,  # 只获取总数，不获取具体数据
+                tenant_ids=tenant_id,
+                kb_ids=[document.kb_id],
+                aggFields=["doc_id"]  # 聚合doc_id字段来获取数量
+            )
+            
+            # 从聚合结果中获取总数
+            total = DOC_STORE_CONN.getTotal(result)
+            return total
             
         except Exception as e:
-            logging.error(f"取消Celery任务失败: {e}")
+            logging.warning(f"获取文档切片数量失败: {e}, doc_id: {doc_id}")
+            return 0
+
+    @staticmethod
+    async def get_document_chunks(
+        session: AsyncSession,
+        doc_id: str,
+        page: int = 1,
+        page_size: int = 20
+    ) -> Tuple[List[Dict], int]:
+        """获取文档的切片列表"""
+        try:
+            # 获取文档信息以获取kb_id
+            document = await DocumentService.get_document_by_id(session, doc_id)
+            if not document:
+                return [], 0
+            
+            # 获取知识库信息以获取tenant_id
+            kb = await KBService.get_kb_by_id(session, document.kb_id)
+            if not kb:
+                return [], 0
+            
+            tenant_id = kb.tenant_id
+            
+            # 构建查询条件
+            condition = {"doc_id": doc_id}
+            
+            # 计算分页参数
+            offset = (page - 1) * page_size
+            
+            # 使用向量存储服务进行查询
+            result = await DOC_STORE_CONN.search(
+                selectFields=[],  # 空列表表示返回所有字段
+                highlightFields=[],
+                condition=condition,
+                matchExprs=[],
+                orderBy=None,  # 可以添加排序逻辑
+                offset=offset,
+                limit=page_size,
+                tenant_ids=tenant_id,
+                kb_ids=[document.kb_id],
+                aggFields=[]
+            )
+            
+            # 获取总数
+            total = DOC_STORE_CONN.getTotal(result)
+            
+            # 获取chunk数据
+            chunks = []
+            if result and "hits" in result:
+                for hit in result["hits"]:
+                    # 直接返回完整的chunk数据，不进行字段过滤
+                    chunks.append(hit)
+            
+            return chunks, total
+            
+        except Exception as e:
+            logging.error(f"获取文档切片列表失败: {e}")
+            return [], 0
+
+    @staticmethod
+    async def get_documents_chunks(
+        session: AsyncSession,
+        doc_ids: List[str],
+        page: int = 1,
+        page_size: int = 20
+    ) -> Tuple[List[Dict], int]:
+        """批量获取多个文档的切片列表"""
+        try:
+            if not doc_ids:
+                return [], 0
+            
+            # 检查所有文档是否属于同一个知识库
+            documents = []
+            kb_ids = set()
+            
+            for doc_id in doc_ids:
+                document = await DocumentService.get_document_by_id(session, doc_id)
+                if not document:
+                    raise ValueError(f"文档 {doc_id} 不存在")
+                documents.append(document)
+                kb_ids.add(document.kb_id)
+            
+            # 检查是否所有文档都在同一个知识库中
+            if len(kb_ids) > 1:
+                raise ValueError(f"文档必须属于同一个知识库，当前文档分布在 {len(kb_ids)} 个不同的知识库中")
+            
+            # 获取知识库信息以获取tenant_id
+            kb = await KBService.get_kb_by_id(session, list(kb_ids)[0])
+            if not kb:
+                raise ValueError("知识库不存在")
+            
+            tenant_id = kb.tenant_id
+            
+            # 构建查询条件 - 使用doc_id的in查询
+            condition = {"doc_id": doc_ids}
+            
+            # 计算分页参数
+            offset = (page - 1) * page_size
+            
+            # 使用向量存储服务进行查询
+            result = await DOC_STORE_CONN.search(
+                selectFields=[],  # 空列表表示返回所有字段
+                highlightFields=[],
+                condition=condition,
+                matchExprs=[],
+                orderBy=None,  # 可以添加排序逻辑
+                offset=offset,
+                limit=page_size,
+                tenant_ids=tenant_id,
+                kb_ids=[list(kb_ids)[0]],
+                aggFields=[]
+            )
+            
+            # 获取总数
+            total = DOC_STORE_CONN.getTotal(result)
+            
+            # 获取chunk数据
+            chunks = []
+            if result and "hits" in result:
+                for hit in result["hits"]:
+                    # 直接返回完整的chunk数据，不进行字段过滤
+                    chunks.append(hit)
+            
+            return chunks, total
+            
+        except Exception as e:
+            logging.error(f"批量获取文档切片列表失败: {e}")
+            return [], 0
+
+    @staticmethod
+    async def delete_document_chunks(session: AsyncSession, doc_id: str):
+        """删除文档的切片数据"""
+        try:
+            # 获取文档信息以获取kb_id和tenant_id
+            document = await DocumentService.get_document_by_id(session, doc_id)
+            if not document:
+                logging.warning(f"文档 {doc_id} 不存在，跳过删除chunks")
+                return
+            
+            # 获取知识库信息以获取tenant_id
+            kb = await KBService.get_kb_by_id(session, document.kb_id)
+            if not kb:
+                logging.warning(f"知识库 {document.kb_id} 不存在，跳过删除chunks")
+                return
+            
+            tenant_id = kb.tenant_id
+            
+            # 构建删除条件
+            condition = {"doc_id": doc_id}
+            
+            # 使用向量存储服务删除chunks
+            deleted_count = await DOC_STORE_CONN.delete(
+                condition=condition,
+                tenant_id=tenant_id,
+                kb_id=document.kb_id
+            )
+            
+            logging.info(f"删除文档 {doc_id} 的切片数据，共删除 {deleted_count} 个chunks")
+            
+        except Exception as e:
+            logging.error(f"删除文档切片数据失败: {e}")
             raise
 
     @staticmethod
-    async def clear_document_data(
-        session: AsyncSession,
-        doc_id: str
-    ):
-        """清除文档相关数据（用于重新解析）"""
+    async def update_document_status(session: AsyncSession, doc_id: str, status: ProcessStatus):
+        """更新文档状态"""
         try:
-            # 这里可以添加清除向量数据、分块数据等的逻辑
-            # 具体实现取决于您的向量存储方案
-            
-            logging.info(f"已清除文档 {doc_id} 的相关数据")
-            
+            document = await DocumentService.get_document_by_id(session, doc_id)
+            if document:
+                document.process_status = status
+                await session.commit()
+                await session.refresh(document)
         except Exception as e:
-            logging.error(f"清除文档数据失败: {e}")
-            raise
+            logging.error(f"更新文档状态失败: {doc_id}, {status}, {e}")
+            await session.rollback()
+            return False
+        return True

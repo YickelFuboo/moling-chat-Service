@@ -233,6 +233,9 @@ class BaseModelFactory(ABC, Generic[T]):
                 model = info["model_name"]
             else:
                 provider, model = default_provider, default_model
+        # 指定的模型无效，也使用默认模型
+        elif not self.if_model_support(provider, model):
+            provider, model = default_provider, default_model
         
         # 获取模型参数
         model_para = self._get_model_para(provider, model)
