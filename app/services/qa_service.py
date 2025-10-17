@@ -34,7 +34,7 @@ class QAService:
         user_id: str,
         tenant_id: str,
         is_stream: bool = False
-    ) -> Generator[Dict[str, Any], None, None]:
+    ):
         """问答服务"""
         try:
             # 获取知识库信息
@@ -70,11 +70,11 @@ class QAService:
                 similarity_threshold=0.1,
                 vector_similarity_weight=0.3,
                 aggs=False,
-                rank_feature=await label_question(request.question, kbs)
+                rank_feature=await label_question(session, request.question, kbs)
             )
             
             # 格式化知识库内容
-            knowledges = kb_prompt(kbinfos, max_tokens)
+            knowledges = await kb_prompt(session, kbinfos, max_tokens)
             
             # 构建提示词
             prompt = """
@@ -96,11 +96,11 @@ class QAService:
             
             msg = [{"role": "user", "content": request.question}]
             
-            def decorate_answer(answer):
+            async def decorate_answer(answer):
                 nonlocal kbinfos
                 
                 # 插入引用
-                answer, idx = retriever.insert_citations(
+                answer, idx = await retriever.insert_citations(
                     answer, 
                     [ck["content_ltks"] for ck in kbinfos["chunks"]], 
                     [ck["vector"] for ck in kbinfos["chunks"]], 
@@ -130,22 +130,20 @@ class QAService:
             if is_stream:
                 # 流式生成
                 answer = ""
-                for ans in chat_mdl.chat_streamly(prompt, msg, {"temperature": 0.1}):
+                for ans in await chat_mdl.chat_streamly(prompt, msg, {"temperature": 0.1}):
                     answer = ans
                     yield {"answer": answer, "reference": {}}
                 
                 # 最后返回完整结果和引用信息
-                final_response = decorate_answer(answer)
+                final_response = await decorate_answer(answer)
                 final_response["prompt"] = prompt
-                final_response["audio_binary"] = None
                 final_response["created_at"] = time.time()
                 yield final_response
             else:
                 # 非流式生成
-                answer = chat_mdl.chat(prompt, msg, {"temperature": 0.1})
-                final_response = decorate_answer(answer)
+                answer = await chat_mdl.chat(prompt, msg, {"temperature": 0.1})
+                final_response = await decorate_answer(answer)
                 final_response["prompt"] = prompt
-                final_response["audio_binary"] = None
                 final_response["created_at"] = time.time()
                 yield final_response
                 
@@ -155,7 +153,6 @@ class QAService:
                 "answer": f"抱歉，处理您的问题时出现了错误：{str(e)}",
                 "reference": {"total": 0, "chunks": [], "doc_aggs": []},
                 "prompt": "",
-                "audio_binary": None,
                 "created_at": time.time()
             }
             yield error_response
@@ -180,7 +177,7 @@ class QAService:
         tavily_api_key: Optional[str] = None,
         temperature: float = 0.1,
         is_stream: bool = True
-    ) -> Generator[Dict[str, Any], None, None]:
+    ):
         """多轮对话服务"""
         try:
             # 验证最后一条消息必须是用户消息
@@ -260,7 +257,7 @@ class QAService:
                     doc_ids=doc_ids,
                     top=top_k,
                     aggs=False,
-                    rank_feature=await label_question(" ".join(questions), kbs)
+                    rank_feature=await label_question(session, " ".join(questions), kbs)
                 )
 
             # 5. 集成Tavily外部知识源
@@ -291,14 +288,13 @@ class QAService:
                     logging.warning(f"知识图谱检索失败: {e}")
                         
             # 格式化知识库内容
-            knowledges = kb_prompt(kbinfos, max_tokens)
+            knowledges = await kb_prompt(session, kbinfos, max_tokens)
 
             if not knowledges:
                 yield {
                     "answer": "抱歉，没有找到相关信息。",
                     "reference": {"total": 0, "chunks": [], "doc_aggs": []},
                     "prompt": "",
-                    "audio_binary": None,
                     "created_at": time.time()
                 }
                 return
@@ -403,7 +399,7 @@ class QAService:
                 thought = False  # 先设置为False，后续可以自己添加
                 
                 # 流式生成答案
-                for ans in chat_mdl.chat_streamly(msg[0]["content"], msg[1:], {"temperature": temperature}):
+                for ans in await chat_mdl.chat_streamly(msg[0]["content"], msg[1:], {"temperature": temperature}):
                     # 如果存在思考过程，移除思考部分
                     if thought:
                         ans = re.sub(r"^.*</think>", "", ans, flags=re.DOTALL)
@@ -430,7 +426,7 @@ class QAService:
                 yield decorate_answer(answer)
             else:
                 # 非流式输出模式：一次性生成完整答案
-                answer = chat_mdl.chat(msg[0]["content"], msg[1:], {"temperature": temperature})
+                answer = await chat_mdl.chat(msg[0]["content"], msg[1:], {"temperature": temperature})
                 
                 # 记录对话日志
                 user_content = msg[-1].get("content", "[content not available]")
@@ -445,7 +441,6 @@ class QAService:
                 "answer": f"抱歉，处理您的问题时出现了错误：{str(e)}",
                 "reference": {"total": 0, "chunks": [], "doc_aggs": []},
                 "prompt": "",
-                "audio_binary": None,
                 "created_at": time.time()
             }
             yield error_response

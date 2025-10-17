@@ -37,15 +37,6 @@ class ChatRequest(BaseModel):
     # LLM配置
     temperature: float = Field(0.1, description="生成温度", ge=0.0, le=2.0)
 
-class DocumentChunk(BaseModel):
-    """文档片段模型"""
-    doc_id: str = Field(..., description="文档ID")
-    chunk_id: str = Field(..., description="片段ID")
-    content: str = Field(..., description="片段内容")
-    content_ltks: str = Field(..., description="分词后的内容")
-    similarity: float = Field(..., description="相似度分数")
-    docnm_kwd: Optional[str] = Field(None, description="文档名称关键词")
-
 class DocumentReference(BaseModel):
     """文档引用模型"""
     doc_id: str = Field(..., description="文档ID")
@@ -53,10 +44,26 @@ class DocumentReference(BaseModel):
     count: int = Field(..., description="引用次数")
 
 
+class ChunkInfo(BaseModel):
+    """文档片段信息模型 - 与chunks_format函数输出格式一致"""
+    id: Optional[str] = Field(None, description="片段ID")
+    content: Optional[str] = Field(None, description="片段内容")
+    document_id: Optional[str] = Field(None, description="文档ID")
+    document_name: Optional[str] = Field(None, description="文档名称")
+    dataset_id: Optional[str] = Field(None, description="数据集ID")
+    image_id: Optional[str] = Field(None, description="图像ID")
+    positions: Optional[Any] = Field(None, description="位置信息")
+    url: Optional[str] = Field(None, description="URL")
+    similarity: Optional[float] = Field(None, description="相似度分数")
+    vector_similarity: Optional[float] = Field(None, description="向量相似度")
+    term_similarity: Optional[float] = Field(None, description="词汇相似度")
+    doc_type: Optional[str] = Field(None, description="文档类型")
+
+
 class QaReference(BaseModel):
     """问答引用信息模型"""
     total: int = Field(..., description="总检索数量")
-    chunks: List[DocumentChunk] = Field(..., description="检索到的文档片段")
+    chunks: List[ChunkInfo] = Field(..., description="检索到的文档片段")
     doc_aggs: List[DocumentReference] = Field(..., description="文档聚合信息")
 
 
@@ -65,7 +72,6 @@ class QaResponse(BaseModel):
     answer: str = Field(..., description="回答内容")
     reference: QaReference = Field(..., description="引用信息")
     prompt: Optional[str] = Field(None, description="使用的提示词")
-    audio_binary: Optional[str] = Field(None, description="音频二进制数据(十六进制)")
     created_at: float = Field(..., description="创建时间戳")
 
 
@@ -74,7 +80,6 @@ class StreamQaResponse(BaseModel):
     answer: str = Field(..., description="回答内容")
     reference: Optional[Dict[str, Any]] = Field(None, description="引用信息")
     prompt: Optional[str] = Field(None, description="使用的提示词")
-    audio_binary: Optional[str] = Field(None, description="音频二进制数据(十六进制)")
     created_at: Optional[float] = Field(None, description="创建时间戳")
 
 

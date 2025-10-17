@@ -44,7 +44,7 @@ async def single_qa(
         
         # 获取最终响应
         final_response = None
-        for response in response_generator:
+        async for response in response_generator:
             final_response = response
         
         if not final_response:
@@ -94,9 +94,9 @@ async def single_qa_stream(
             is_stream=True
         )
         
-        def generate_stream():
+        async def generate_stream():
             try:
-                for response in response_generator:
+                async for response in response_generator:
                     # 将响应转换为JSON字符串
                     json_str = json.dumps(response, ensure_ascii=False)
                     # 使用Server-Sent Events格式
@@ -107,7 +107,6 @@ async def single_qa_stream(
                     "answer": f"抱歉，处理您的问题时出现了错误：{str(e)}",
                     "reference": {"total": 0, "chunks": [], "doc_aggs": []},
                     "prompt": "",
-                    "audio_binary": None,
                     "created_at": None
                 }
                 json_str = json.dumps(error_response, ensure_ascii=False)
@@ -184,7 +183,7 @@ async def chat(
         
         # 获取最终响应
         final_response = None
-        for response in response_generator:
+        async for response in response_generator:
             final_response = response
         
         if not final_response:
@@ -256,9 +255,9 @@ async def chat_stream(
             is_stream=True
         )
         
-        def generate_stream():
+        async def generate_stream():
             try:
-                for response in response_generator:
+                async for response in response_generator:
                     # 将响应转换为JSON字符串
                     json_str = json.dumps(response, ensure_ascii=False)
                     # 使用Server-Sent Events格式
@@ -269,7 +268,6 @@ async def chat_stream(
                     "answer": f"抱歉，处理您的问题时出现了错误：{str(e)}",
                     "reference": {"total": 0, "chunks": [], "doc_aggs": []},
                     "prompt": "",
-                    "audio_binary": None,
                     "created_at": None
                 }
                 json_str = json.dumps(error_response, ensure_ascii=False)

@@ -23,6 +23,7 @@ from app.constants.common import DocumentConstants, FileType, FileSource
 from app.schemes.document import FileUploadResult
 from app.services.common.file_service import FileService, FileUsage
 from app.services.common.doc_vector_store_service import DOC_STORE_CONN
+from app.infrastructure.database import get_db
 
 
 class DocumentService:
@@ -558,7 +559,7 @@ class DocumentService:
     
     @staticmethod
     async def get_documents_by_ids(
-        session: AsyncSession, 
+        session: AsyncSession,
         doc_ids: List[str]
     ) -> List[Document]:
         """根据ID列表获取文档"""
@@ -862,3 +863,32 @@ class DocumentService:
             cleaned_chunks.append(cleaned_chunk)
         
         return cleaned_chunks
+    
+    @staticmethod
+    async def update_document_meta_fields(
+        session: AsyncSession,
+        doc_id: str,
+        meta_fields: Optional[Dict[str, Any]] = None
+    ) -> Optional[Document]:
+        """更新文档的元数据字段"""
+        try:
+            # 获取文档
+            result = await session.execute(
+                select(Document).where(Document.id == doc_id)
+            )
+            document = result.scalar_one_or_none()
+            
+            if not document:
+                logging.error(f"文档 {doc_id} 不存在，跳过更新meta_fields")
+                raise ValueError(f"文档 {doc_id} 不存在")
+            
+            # 更新meta_fields
+            document.meta_fields = meta_fields
+            await session.commit()
+            await session.refresh(document)
+            
+            return document
+        except Exception as e:
+            await session.rollback()
+            logging.error(f"更新文档元数据字段失败: {e}")
+            raise

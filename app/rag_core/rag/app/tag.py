@@ -123,7 +123,7 @@ async def chunk(filename, binary=None, lang="Chinese", callback=None, **kwargs):
         "Excel, csv(txt) format files are supported.")
 
 
-async def label_question(question, kbs):
+async def label_question(session, question, kbs):
     tags = None
     tag_kb_ids = []
     for kb in kbs:
@@ -136,7 +136,7 @@ async def label_question(question, kbs):
             set_tags_to_cache(tags=all_tags, kb_ids=tag_kb_ids)
         else:
             all_tags = json.loads(all_tags)
-        tag_kbs = KBService.get_kb_by_ids(tag_kb_ids)
+        tag_kbs = await KBService.get_kb_by_ids(session, tag_kb_ids)
         tags = await RETRIEVALER.tag_query(question,
                                               list(set([kb.tenant_id for kb in tag_kbs])),
                                               tag_kb_ids,

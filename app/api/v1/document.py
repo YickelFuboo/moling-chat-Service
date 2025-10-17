@@ -13,6 +13,7 @@ from app.schemes.document import (
     ListDocumentResponse,
     DocumentChunksResponse,
     UpdateDocumentRequest,
+    UpdateDocumentMetaFieldsRequest,
     ParserResult,
 )
 from app.models.document import ProcessStatus
@@ -535,4 +536,28 @@ async def get_documents_chunks_batch(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"message": f"批量获取文档切片列表失败: {str(e)}"}
+        )
+
+
+@router.put("/{doc_id}/meta-fields", response_model=DocumentResponse)
+async def update_document_meta_fields(
+    doc_id: str,
+    request: UpdateDocumentMetaFieldsRequest,
+    session: AsyncSession = Depends(get_db)
+):
+    """更新文档的元数据字段"""
+    try:       
+        # 更新meta_fields
+        updated_document = await DocumentService.update_document_meta_fields(
+            session, doc_id, request.meta_fields
+        )
+        return updated_document
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"更新文档元数据字段失败: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": f"更新文档元数据字段失败: {str(e)}"}
         )

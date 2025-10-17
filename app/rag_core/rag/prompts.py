@@ -87,7 +87,7 @@ def message_fit_in(msg, max_length=4000):
     return max_length, msg
 
 
-def kb_prompt(kbinfos, max_tokens):
+async def kb_prompt(session, kbinfos, max_tokens):
     """
     将检索到的知识库信息格式化为LLM可用的提示词
     
@@ -117,7 +117,7 @@ def kb_prompt(kbinfos, max_tokens):
             break
 
     # 第二步：获取文档的元数据信息
-    docs = DocumentService.get_documents_by_ids([ck["doc_id"] for ck in kbinfos["chunks"][:chunks_num]])
+    docs = await DocumentService.get_documents_by_ids(session, [ck["doc_id"] for ck in kbinfos["chunks"][:chunks_num]])
     docs = {d.id: d.meta_fields for d in docs}
 
     # 第三步：按文档名称分组chunks，使用defaultdict自动创建默认结构

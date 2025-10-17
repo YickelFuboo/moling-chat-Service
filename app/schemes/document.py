@@ -16,6 +16,10 @@ class UpdateDocumentRequest(BaseModel):
     """更新文档请求模型"""
     description: Optional[str] = Field(None, description="文档描述")
 
+class UpdateDocumentMetaFieldsRequest(BaseModel):
+    """更新文档元数据字段请求模型"""
+    meta_fields: Optional[Any] = Field(None, description="文档元数据字段(JSON格式)")
+
 # 响应模型
 class DocumentResponse(BaseModel):
     """文档响应模型"""
@@ -30,6 +34,7 @@ class DocumentResponse(BaseModel):
     thumbnail: Optional[str]
     parser_id: str
     parser_config: Optional[Any]
+    meta_fields: Optional[Any] = None
     source_type: str
     process_status: ProcessStatus
     chunk_count: int = 0
