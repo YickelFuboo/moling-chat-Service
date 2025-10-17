@@ -597,7 +597,7 @@ class ESConnection(VectorStoreConnection):
             return []
 
     # 获取Fields
-    def _get_source(self, result) -> list[dict[str, Any]]:
+    def get_source(self, result) -> list[dict[str, Any]]:
         """
         获取搜索结果中的_source数据，并添加id和_score字段
         Args:
@@ -625,7 +625,7 @@ class ESConnection(VectorStoreConnection):
             field_data = {}
             if not fields:
                 return {}
-            for source in self._get_source(result):
+            for source in self.get_source(result):
                 data = {name: source.get(name) for name in fields if source.get(name) is not None}
                 for name, value in data.items():
                     if isinstance(value, list):

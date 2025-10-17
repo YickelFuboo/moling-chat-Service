@@ -39,11 +39,11 @@ from app.rag_core.llm_service import LLMBundle, LLMType
 class DocParserService:
     """文档解析服务类"""
 
-    def __init__(self, kb: KB, document: Document, user_id: str, delete_old: bool = True):
+    def __init__(self, session: AsyncSession, kb: KB, document: Document, user_id: str, delete_old: bool = True):
         self.kb = kb
         self.document = document
         self.user_id = user_id
-        self.db_session = get_db()
+        self.db_session = session
         self.delete_old = delete_old
 
         self.parser_config = json.loads(document.parser_config) if isinstance(document.parser_config, str) else document.parser_config
@@ -645,7 +645,7 @@ class DocParserService:
             
         except Exception as e:
             logging.error(f"存储向量结果失败: {e}")
-            return False
+            raise
 
     async def _execute_raptor_task(self) -> tuple:
         """

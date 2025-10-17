@@ -11,19 +11,15 @@ import aspose.slides as slides
 import concurrent.futures
 from io import BytesIO
 from PIL import Image
-from datetime import datetime
-from typing import List, Optional, Tuple, Dict, Any, BinaryIO
+from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import UploadFile
 from sqlalchemy import select, and_, or_, func, desc, asc
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from app.models import Document, KB
 from app.models.document import ProcessStatus
 from app.rag_core.utils import ParserType
-from app.rag_core.chunk_api import CHUNK_FACTORY
 from app.constants.common import DocumentConstants, FileType, FileSource
-from app.services.kb_service import KBService
 from app.schemes.document import FileUploadResult
 from app.services.common.file_service import FileService, FileUsage
 from app.services.common.doc_vector_store_service import DOC_STORE_CONN
@@ -465,6 +461,7 @@ class DocumentService:
                 raise ValueError("文档不存在")
             
             # 2. 获取知识库信息
+            from app.services.kb_service import KBService
             kb = await KBService.get_kb_by_id(session, old_document.kb_id)
             if not kb:
                 raise ValueError("知识库不存在")
@@ -627,6 +624,7 @@ class DocumentService:
                 return 0
             
             # 获取知识库信息以获取tenant_id
+            from app.services.kb_service import KBService
             kb = await KBService.get_kb_by_id(session, document.kb_id)
             if not kb:
                 return 0
@@ -662,6 +660,7 @@ class DocumentService:
     async def get_document_chunks(
         session: AsyncSession,
         doc_id: str,
+        with_vector: bool = False,
         page: int = 1,
         page_size: int = 20
     ) -> Tuple[List[Dict], int]:
@@ -673,6 +672,7 @@ class DocumentService:
                 return [], 0
             
             # 获取知识库信息以获取tenant_id
+            from app.services.kb_service import KBService
             kb = await KBService.get_kb_by_id(session, document.kb_id)
             if not kb:
                 return [], 0
@@ -703,22 +703,23 @@ class DocumentService:
             total = DOC_STORE_CONN.getTotal(result)
             
             # 获取chunk数据
-            chunks = []
-            if result and "hits" in result:
-                for hit in result["hits"]:
-                    # 直接返回完整的chunk数据，不进行字段过滤
-                    chunks.append(hit)
-            
+            chunks = DOC_STORE_CONN.getSource(result)
+
+            # 清理向量字段为空
+            if not with_vector:
+                chunks = DocumentService._clean_chunk_fields(chunks)
+
             return chunks, total
             
         except Exception as e:
             logging.error(f"获取文档切片列表失败: {e}")
-            return [], 0
+            raise
 
     @staticmethod
     async def get_documents_chunks(
         session: AsyncSession,
         doc_ids: List[str],
+        with_vector: bool = False,
         page: int = 1,
         page_size: int = 20
     ) -> Tuple[List[Dict], int]:
@@ -743,6 +744,7 @@ class DocumentService:
                 raise ValueError(f"文档必须属于同一个知识库，当前文档分布在 {len(kb_ids)} 个不同的知识库中")
             
             # 获取知识库信息以获取tenant_id
+            from app.services.kb_service import KBService
             kb = await KBService.get_kb_by_id(session, list(kb_ids)[0])
             if not kb:
                 raise ValueError("知识库不存在")
@@ -773,17 +775,17 @@ class DocumentService:
             total = DOC_STORE_CONN.getTotal(result)
             
             # 获取chunk数据
-            chunks = []
-            if result and "hits" in result:
-                for hit in result["hits"]:
-                    # 直接返回完整的chunk数据，不进行字段过滤
-                    chunks.append(hit)
+            chunks = DOC_STORE_CONN.getSource(result)
+            
+            # 清理向量字段为空
+            if not with_vector:
+                chunks = DocumentService._clean_chunk_fields(chunks)
             
             return chunks, total
             
         except Exception as e:
             logging.error(f"批量获取文档切片列表失败: {e}")
-            return [], 0
+            raise
 
     @staticmethod
     async def delete_document_chunks(session: AsyncSession, doc_id: str):
@@ -796,6 +798,7 @@ class DocumentService:
                 return
             
             # 获取知识库信息以获取tenant_id
+            from app.services.kb_service import KBService
             kb = await KBService.get_kb_by_id(session, document.kb_id)
             if not kb:
                 logging.warning(f"知识库 {document.kb_id} 不存在，跳过删除chunks")
@@ -817,7 +820,7 @@ class DocumentService:
             
         except Exception as e:
             logging.error(f"删除文档切片数据失败: {e}")
-            raise
+            raise  # 删除失败可能是数据不存在
 
     @staticmethod
     async def update_document_status(session: AsyncSession, doc_id: str, status: ProcessStatus):
@@ -833,3 +836,29 @@ class DocumentService:
             await session.rollback()
             return False
         return True
+
+    @staticmethod
+    def _clean_chunk_fields(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        清理chunk数据中的向量字段，将q_*_vec相关字段置空
+        
+        Args:
+            chunks: 原始chunk数据列表
+            
+        Returns:
+            List[Dict[str, Any]]: 清理后的chunk数据列表
+        """
+        import re
+        
+        cleaned_chunks = []
+        for chunk in chunks:
+            cleaned_chunk = chunk.copy()  # 复制原始数据
+            
+            # 将q_*_vec相关字段置空
+            for key in cleaned_chunk.keys():
+                if re.match(r'q_\d+_vec', key):  # 匹配q_数字_vec格式的字段
+                    cleaned_chunk[key] = None
+            
+            cleaned_chunks.append(cleaned_chunk)
+        
+        return cleaned_chunks

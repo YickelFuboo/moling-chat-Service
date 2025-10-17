@@ -14,6 +14,7 @@ from app.rag_core.utils import ParserType
 from app.services.common.doc_vector_store_service import DOC_STORE_CONN
 from app.rag_core.constants import PAGERANK_FLD
 
+
 class KBService:
     """知识库服务类"""
 
@@ -244,8 +245,8 @@ class KBService:
                     "page_rank": kb.page_rank,
                     "parser_id": kb.parser_id,
                     "parser_config": kb.parser_config,
-                    "created_at": kb.created_at.isoformat(),
-                    "updated_at": kb.updated_at.isoformat()
+                    "created_at": kb.created_at,
+                    "updated_at": kb.updated_at
                 }
                 kb_list.append(kb_dict)
             
@@ -348,9 +349,15 @@ class KBService:
             # 检查权限
             if kb.owner_id != owner_id:
                 raise ValueError("不是知识库Owner")
+
+            # 删除KB下所有文档
+            from app.services.doc_service import DocumentService
+            documents, total = await DocumentService.get_documents_by_kb_id(session, kb_id)
+            for document in documents:
+                await DocumentService.delete_document_by_id(session, document.id)
             
-            # 软删除知识库，设置状态为无效
-            kb.status = "0"
+            # 硬删除知识库
+            await session.delete(kb)
             await session.commit()
             
             logging.info(f"知识库删除成功: {kb_id}")
@@ -384,7 +391,9 @@ class KBService:
         if not isinstance(config, dict):
             raise ValueError("配置必须是字典类型")
         
-        async with get_db() as session:
+        db_gen = get_db()
+        session = await db_gen.__anext__()
+        try:
             try:
                 # 获取知识库
                 kb = await KBService.get_kb_by_id(session, kb_id)
@@ -438,6 +447,11 @@ class KBService:
                 await session.rollback()
                 logging.error(f"更新知识库 {kb_id} 解析器配置失败: {e}")
                 raise
+        finally:
+            try:
+                await db_gen.aclose()
+            except Exception as e:
+                logging.warning(f"关闭数据库会话失败: {e}")
 
     @staticmethod
     async def _check_kb_name_exists_in_tenant(

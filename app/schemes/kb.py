@@ -43,6 +43,11 @@ class KBResponse(BaseModel):
     rerank_model_name: Optional[str]
     language: str
     page_rank: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
 
 
 class KBDetailResponse(BaseModel):

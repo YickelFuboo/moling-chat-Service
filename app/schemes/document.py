@@ -54,21 +54,9 @@ class ParserResult(BaseModel):
     doc_id: str = Field(..., description="文档ID")
     success: bool = Field(..., description="解析是否成功")
 
-class ChunkResponse(BaseModel):
-    """文档切片响应模型"""
-    id: str
-    doc_id: str
-    content: str
-    chunk_index: int
-    token_count: int
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
 class DocumentChunksResponse(BaseModel):
     """文档切片列表响应模型"""
-    chunks: List[ChunkResponse]
+    chunks: List[Any]
     total: int
     page: int
     page_size: int

@@ -295,6 +295,10 @@ class DocVectorStoreService:
         """获取搜索结果中的Chunk IDs"""
         return self.store_conn.get_chunk_ids(result)
 
+    def getSource(self, result):
+        """获取搜索结果中的_source数据"""
+        return self.store_conn.get_source(result)
+
     def getFields(self, result, fields: list[str]) -> dict[str, dict]:
         """获取搜索结果中指定字段的数据"""
         return self.store_conn.get_fields(result, fields)

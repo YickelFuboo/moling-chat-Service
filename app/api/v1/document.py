@@ -1,7 +1,7 @@
 import os
 import urllib.parse
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Union
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, status
@@ -434,7 +434,7 @@ async def parse_document(
         await DocumentService.update_document_status(session, doc_id, ProcessStatus.INIT)
 
         # 启动Document解析任务
-        docparser = DocParserService(kb, document, user_id)
+        docparser = DocParserService(session, kb, document, user_id)
         result = await docparser.parse_document()
 
         # 更新文档状态
@@ -452,6 +452,7 @@ async def parse_document(
 @router.get("/{doc_id}/chunks", response_model=DocumentChunksResponse)
 async def get_document_chunks(
     doc_id: str,
+    with_vector: bool = Query(False, description="是否返回向量"),
     page: int = Query(1, description="页码", ge=1),
     page_size: int = Query(20, description="每页数量", ge=1, le=100),
     user_id: str = Query(..., description="用户ID"),
@@ -463,6 +464,7 @@ async def get_document_chunks(
         chunks, total = await DocumentService.get_document_chunks(
             session=session,
             doc_id=doc_id,
+            with_vector=with_vector,
             page=page,
             page_size=page_size
         )
@@ -485,7 +487,8 @@ async def get_document_chunks(
 
 @router.post("/chunks/batch", response_model=DocumentChunksResponse)
 async def get_documents_chunks_batch(
-    doc_ids: List[str] = Form(..., description="文档ID列表"),
+    doc_ids: Union[str] = Form(..., description="文档ID列表，可以是逗号分隔的字符串或列表"),
+    with_vector: bool = Query(False, description="是否返回向量"),
     page: int = Query(1, description="页码", ge=1),
     page_size: int = Query(20, description="每页数量", ge=1, le=100),
     user_id: str = Query(..., description="用户ID"),
@@ -498,11 +501,15 @@ async def get_documents_chunks_batch(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"message": "文档ID列表不能为空"}
             )
-        
+
+        # 解析逗号分隔的文档ID字符串
+        doc_ids = [doc_id.strip() for doc_id in doc_ids.split(',') if doc_id.strip()]
+
         # 批量获取chunks
         chunks, total = await DocumentService.get_documents_chunks(
             session=session,
             doc_ids=doc_ids,
+            with_vector=with_vector,
             page=page,
             page_size=page_size
         )
