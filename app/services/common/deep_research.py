@@ -501,7 +501,7 @@ class DeepResearcher:
                     # 样例：重复查询时的提示
                     # summary_think = "\n<|begin_search_result|>\nYou have searched this query. Please refer to previous results.\n<|end_search_result|>\n"
                     summary_think = f"\n{BEGIN_SEARCH_RESULT}\nYou have searched this query. Please refer to previous results.\n{END_SEARCH_RESULT}\n"
-                    yield {"answer": think + summary_think + "</think>", "reference": {}, "audio_binary": None}
+                    yield {"answer": think + summary_think + "</think>", "reference": {}}
                     all_reasoning_steps.append(summary_think)
                     msg_history.append({"role": "user", "content": summary_think})
                     think += summary_think
@@ -529,7 +529,7 @@ class DeepResearcher:
                     summary_think = ans
                     # 样例：yield输出给用户（已移除结果标签）
                     # {"answer": "<think>让我搜索一下：什么是人工智能\n\n> 1. 什么是人工智能\n\n\n\n人工智能（AI）是计算机科学的一个分支...", "reference": {}, "audio_binary": None}
-                    yield {"answer": think + self._remove_result_tags(summary_think) + "</think>", "reference": {}, "audio_binary": None}
+                    yield {"answer": think + self._remove_result_tags(summary_think) + "</think>", "reference": {}}
 
                 all_reasoning_steps.append(summary_think)
                 # 样例：msg_history添加用户消息
