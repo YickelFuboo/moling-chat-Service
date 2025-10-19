@@ -16,6 +16,7 @@
 import logging
 import re
 from functools import partial
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.rag_core.llm_service import LLMBundle
 from app.rag_core.rag.nlp import extract_between
 from app.rag_core.rag.prompts import kb_prompt
@@ -142,11 +143,12 @@ class DeepResearcher:
     """
     
     def __init__(self,
-                 chat_mdl: LLMBundle,
-                 prompt_config: dict,
-                 kb_retrieve: partial = None,
-                 kg_retrieve: partial = None
-                 ):
+                session: AsyncSession,                
+                chat_mdl: LLMBundle,
+                prompt_config: dict,
+                kb_retrieve: partial = None,
+                kg_retrieve: partial = None
+                ):
         """
         初始化深度研究推理器
         
@@ -158,6 +160,7 @@ class DeepResearcher:
             kb_retrieve (partial, optional): 知识库检索函数，用于从本地知识库检索信息
             kg_retrieve (partial, optional): 知识图谱检索函数，用于从知识图谱检索信息
         """
+        self.session = session
         self.chat_mdl = chat_mdl
         self.prompt_config = prompt_config
         self._kb_retrieve = kb_retrieve
@@ -222,42 +225,22 @@ class DeepResearcher:
         Args:
             msg_history (list): 消息历史列表，包含用户问题和之前的推理步骤
             
-        Yields:
-            str: 流式生成的推理步骤文本
-            
         Returns:
             str: 完整的推理步骤文本
         """
-        query_think = ""
-        
         # 确保最后一条消息是用户消息，如果不是则添加提示
         if msg_history[-1]["role"] != "user":
             msg_history.append({"role": "user", "content": "Continues reasoning with the new information.\n"})
         else:
             msg_history[-1]["content"] += "\n\nContinues reasoning with the new information.\n"
             
-        # 使用LLM生成推理步骤，流式输出
-        # 样例：LLM流式输出内容
-        # 第1次输出：ans = "<think>我需要搜索一些信息来回答这个问题</think>让我搜索一下："
-        # 第2次输出：ans = "<think>我需要搜索一些信息来回答这个问题</think>让我搜索一下：<|begin_search_query|>"
-        # 第3次输出：ans = "<think>我需要搜索一些信息来回答这个问题</think>让我搜索一下：<|begin_search_query|>什么是人工智能"
-        # 第4次输出：ans = "<think>我需要搜索一些信息来回答这个问题</think>让我搜索一下：<|begin_search_query|>什么是人工智能<|end_search_query|>"
-        async for ans in self.chat_mdl.chat_stream(REASON_PROMPT, msg_history, {"temperature": 0.7}):
-            # 清理LLM输出，移除思考过程标记
-            # 样例：处理前 ans = "<think>我需要搜索一些信息来回答这个问题</think>让我搜索一下：<|begin_search_query|>什么是人工智能<|end_search_query|>"
-            # 样例：处理后 ans = "让我搜索一下：<|begin_search_query|>什么是人工智能<|end_search_query|>"
-            ans = re.sub(r"^.*</think>", "", ans, flags=re.DOTALL)
-            if not ans:
-                continue
-            query_think = ans
-            # 样例：yield输出给调用方
-            # 第1次：yield "让我搜索一下："
-            # 第2次：yield "让我搜索一下：<|begin_search_query|>"
-            # 第3次：yield "让我搜索一下：<|begin_search_query|>什么是人工智能"
-            # 第4次：yield "让我搜索一下：<|begin_search_query|>什么是人工智能<|end_search_query|>"
-            yield query_think
-            
-        return
+        # 使用LLM生成推理步骤，非流式输出
+        response = await self.chat_mdl.chat(REASON_PROMPT, msg_history, {"temperature": 0.7})
+        
+        # 清理LLM输出，移除思考过程标记
+        query_think = re.sub(r"^.*</think>", "", response, flags=re.DOTALL)
+        
+        return query_think
 
     def _extract_search_queries(self, query_think, question, step_index):
         """
@@ -432,7 +415,7 @@ class DeepResearcher:
         prompt = RELEVANT_EXTRACTION_PROMPT.format(
             prev_reasoning=truncated_prev_reasoning,
             search_query=search_query,
-            document="\n".join(kb_prompt(kbinfos, 4096))  # 格式化文档内容，限制token数量
+            document="\n".join(await kb_prompt(self.session, kbinfos, 4096))  # 格式化文档内容，限制token数量
         )
         
         # 构建用户消息
@@ -482,41 +465,27 @@ class DeepResearcher:
         all_reasoning_steps = []  # 所有推理步骤
         think = "<think>"  # 思考过程开始标记
         
-        # 主循环：最多执行MAX_SEARCH_LIMIT轮推理
+        # 最多执行MAX_SEARCH_LIMIT轮推理
         for step_index in range(MAX_SEARCH_LIMIT + 1):
-            # 检查是否达到最大搜索限制
             if step_index == MAX_SEARCH_LIMIT - 1:
-                # 样例：达到搜索限制时的输出
-                # summary_think = "\n<|begin_search_result|>\nThe maximum search limit is exceeded. You are not allowed to search.\n<|end_search_result|>\n"
                 summary_think = f"\n{BEGIN_SEARCH_RESULT}\nThe maximum search limit is exceeded. You are not allowed to search.\n{END_SEARCH_RESULT}\n"
                 yield {"answer": think + summary_think + "</think>", "reference": {}, "audio_binary": None}
                 all_reasoning_steps.append(summary_think)
                 msg_history.append({"role": "assistant", "content": summary_think})
                 break
 
-            # 步骤1：生成推理步骤
-            # 样例：LLM生成的推理内容
-            # query_think = "<think>我需要搜索一些信息来回答这个问题</think>让我搜索一下：<|begin_search_query|>什么是人工智能<|end_search_query|>"
-            query_think = ""
-            async for ans in self._generate_reasoning(msg_history):
-                query_think = ans
-                # 样例：yield输出给用户的内容（已移除<think>标签）
-                # {"answer": "<think>让我搜索一下：什么是人工智能", "reference": {}, "audio_binary": None}
-                yield {"answer": think + self._remove_query_tags(query_think) + "</think>", "reference": {}, "audio_binary": None}
-
-            # 样例：think变量累积内容
-            # think = "<think>让我搜索一下：什么是人工智能"
+            # 步骤1：调用大模型生成推理步骤
+            query_think = await self._generate_reasoning(msg_history)
+            yield {"answer": think + self._remove_query_tags(query_think) + "</think>", "reference": {}}  
+            all_reasoning_steps.append(query_think)          
             think += self._remove_query_tags(query_think)
-            all_reasoning_steps.append(query_think)
             
-            # 步骤2：提取搜索查询
-            # 样例：从query_think中提取出["什么是人工智能"]
+            # 步骤2：提取模型返回结果中步骤问题
             queries = self._extract_search_queries(query_think, question, step_index)
             if not queries and step_index > 0:
                 # 如果不是第一步且没有查询，结束搜索过程
                 break
 
-            # 处理每个搜索查询
             for search_query in queries:
                 # 样例：search_query = "什么是人工智能"
                 logging.info(f"[THINK]Query: {step_index}. {search_query}")

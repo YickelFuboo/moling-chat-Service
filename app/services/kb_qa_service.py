@@ -227,6 +227,7 @@ class QAService:
             # 2.1 启动Deep Search方式检索
             if enable_deep_research:
                 reasoner = DeepResearcher(
+                    session,
                     chat_mdl,
                     {"tavily_api_key": settings.tavily_api_key, "use_kg": enable_knowledge_graph},
                     partial(RETRIEVALER.retrieval, 
@@ -592,6 +593,7 @@ class QAService:
             # 是否启动推理过程（预埋）
             if enable_deep_research:
                 reasoner = DeepResearcher(
+                    session,
                     chat_mdl,
                     {"tavily_api_key": tavily_api_key, "use_kg": use_kg},
                     partial(retriever.retrieval, embd_mdl=embd_mdl, tenant_ids=tenant_ids, kb_ids=kb_ids, page=1, page_size=top_n, similarity_threshold=0.2, vector_similarity_weight=0.3),
