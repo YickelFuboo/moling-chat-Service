@@ -108,7 +108,7 @@ async def validate_single_cv_model(provider: str, model_name: str) -> dict:
                 stream_content = ""
                 final_token_count = 0
                 
-                async for content, token_count in model_instance.chat_streamly(system, history, gen_conf, test_image_b64):
+                async for content, token_count in model_instance.chat_stream(system, history, gen_conf, test_image_b64):
                     stream_content += content
                     final_token_count = token_count
                 

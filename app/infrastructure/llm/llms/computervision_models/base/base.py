@@ -104,7 +104,7 @@ class BaseComputerVision(ABC):
         pass
 
     @abstractmethod
-    async def chat_streamly(self, system: str, history: List[Dict[str, Any]], gen_conf: Dict[str, Any], image: str = "") -> Tuple[str, int]:
+    async def chat_stream(self, system: str, history: List[Dict[str, Any]], gen_conf: Dict[str, Any], image: str = "") -> Tuple[str, int]:
         """
         执行流式视觉聊天对话
         

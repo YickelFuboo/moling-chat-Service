@@ -537,10 +537,14 @@ class KBService:
             for kb in kbs:
                 if kb.parser_config:
                     try:
-                        # 解析JSON字符串
-                        parser_config = json.loads(kb.parser_config)
-                        if "field_map" in parser_config:
-                            conf.update(parser_config["field_map"])
+                        # parser_config已经是字典对象，直接使用
+                        if isinstance(kb.parser_config, dict) and "field_map" in kb.parser_config:
+                            conf.update(kb.parser_config["field_map"])
+                        elif isinstance(kb.parser_config, str):
+                            # 如果是字符串，则解析JSON
+                            parser_config = json.loads(kb.parser_config)
+                            if "field_map" in parser_config:
+                                conf.update(parser_config["field_map"])
                     except (json.JSONDecodeError, TypeError) as e:
                         logging.warning(f"解析知识库 {kb.id} 的parser_config失败: {e}")
                         continue

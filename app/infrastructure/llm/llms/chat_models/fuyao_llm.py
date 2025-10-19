@@ -54,8 +54,13 @@ class FuYaoModels(LLM):
                 messages.extend(history)
  
             # 添加用户问题信息
-            user_message = f"{user_prompt}\n{user_question}" if user_prompt else user_question
-            messages.append({"role": "user", "content": user_message})
+            if user_question:
+                user_message = f"{user_prompt}\n{user_question}" if user_prompt else user_question
+                messages.append({"role": "user", "content": user_message})
+
+            if not messages:
+                logging.error("Messages are empty")
+                raise ValueError("Messages are empty")
         
             return messages
         except Exception as e:
@@ -66,7 +71,6 @@ class FuYaoModels(LLM):
                   system_prompt: str,
                   user_prompt: str,
                   user_question: str,
-                  stream: bool = False,
                   history: List[Dict[str, Any]] = None,
                   **kwargs) -> Tuple[ChatResponse, int]:
         """OpenAI兼容的聊天实现，支持失败重试"""
@@ -153,7 +157,6 @@ class FuYaoModels(LLM):
                   system_prompt: str,
                   user_prompt: str,
                   user_question: str,
-                  stream: bool = False,
                   history: List[Dict[str, Any]] = None,
                   **kwargs) -> Tuple[AsyncGenerator[str, None], int]:
         """OpenAI兼容的聊天流式实现，支持失败重试"""

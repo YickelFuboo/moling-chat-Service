@@ -77,19 +77,40 @@ class LLMBundle:
 
         return txt[last_think_end + len("</think>") :]
 
-    async def chat(self, system, history, gen_conf):
-        response, used_tokens = await self.mdl.chat(system, history, gen_conf)
-        # 如果返回的是ChatResponse对象，提取content属性
-        if hasattr(response, 'content'):
-            txt = response.content
+    async def chat(self, system, history, gen_conf):  
+        # 根据模型类型调用不同的chat接口
+        if self.llm_type == LLMType.CHAT:
+            # Chat模型的接口：system_prompt, user_prompt, user_question, history
+            response, used_tokens = await self.mdl.chat(
+                system_prompt=system, 
+                user_prompt=None, 
+                user_question=None, 
+                history=history, 
+                **gen_conf)
+            # 如果返回的是ChatResponse对象，提取content属性
+            if hasattr(response, 'content'):
+                txt = response.content
+            else:
+                txt = response
         else:
-            txt = response
+            raise ValueError(f"不支持的模型类型进行chat操作: {self.llm_type}")
+        
         txt = self._remove_reasoning_content(txt)
         return txt
 
-    async def chat_streamly(self, system, history, gen_conf):
-        async for txt in self.mdl.chat_streamly(system, history, gen_conf):
-            yield txt
+    async def chat_stream(self, system, history, gen_conf):
+        # 根据模型类型调用不同的chat_stream接口
+        if self.llm_type == LLMType.CHAT:
+            # Chat模型的接口：system_prompt, user_prompt, user_question, history
+            async for txt in self.mdl.chat_stream(
+                system_prompt=system, 
+                user_prompt=None, 
+                user_question=None, 
+                history=history, 
+                **gen_conf):
+                yield txt
+        else:
+            raise ValueError(f"不支持的模型类型进行chat_stream操作: {self.llm_type}")
 
     async def is_strong_enough(self):
         if self.llm_type == LLMType.CHAT or self.llm_type == LLMType.EMBEDDING:

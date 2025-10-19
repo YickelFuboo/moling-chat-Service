@@ -46,12 +46,17 @@ class ClaudeModels(OpenAIBase):
             if history:
                 messages.extend(history)
  
-            # 添加用户消息（包含system prompt）
-            user_message = f"{user_prompt}\n{user_question}" if user_prompt else user_question
-            if system_prompt:
-                user_message = f"{system_prompt}\n\n{user_message}"
-            messages.append({"role": "user", "content": user_message})
+            # 如果有单独的用户问题信息，则添加用户消息（包含system prompt）
+            if user_question or system_prompt:
+                user_message = f"{user_prompt}\n{user_question}" if user_prompt else user_question
+                if system_prompt:
+                    user_message = f"{system_prompt}\n\n{user_message}"
+                messages.append({"role": "user", "content": user_message})
         
+            if not messages:
+                logging.error("Messages are empty")
+                raise ValueError("Messages are empty")
+            
             return messages
         except Exception as e:
             logging.error(f"Error in _format_message: {e}")

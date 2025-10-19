@@ -172,7 +172,7 @@ async def chat_stream(request: ChatRequest):
             raise HTTPException(status_code=400, detail="无法创建模型实例")
         
         async def generate():
-            async for chunk in model.chat_streamly(
+            async for chunk in model.chat_stream(
                 system_prompt=request.system_prompt,
                 user_prompt=request.user_prompt,
                 user_question=request.user_question
@@ -266,7 +266,7 @@ async def image_chat_stream(request: ImageChatRequest):
         image_data = base64.b64decode(request.image_base64)
         
         async def generate():
-            async for chunk in model.chat_streamly(image_data, request.user_question):
+            async for chunk in model.chat_stream(image_data, request.user_question):
                 yield f"data: {chunk}\n\n"
         
         return StreamingResponse(generate(), media_type="text/plain")

@@ -3,11 +3,12 @@ import uuid
 import asyncio
 from tavily import TavilyClient
 from app.rag_core.rag.nlp import rag_tokenizer
+from app.config import settings
 
 
 class Tavily:
-    def __init__(self, api_key: str):
-        self.tavily_client = TavilyClient(api_key=api_key)
+    def __init__(self):
+        self.tavily_client = TavilyClient(api_key=settings.tavily_api_key)
 
     async def search(self, query):
         try:
@@ -34,9 +35,9 @@ class Tavily:
                 "chunk_id": id,
                 "content_ltks": rag_tokenizer.tokenize(r["content"]),
                 "content_with_weight": r["content"],
-                "doc_id": id,
+                "doc_id": "",
                 "docnm_kwd": r["title"],
-                "kb_id": [],
+                "kb_id": "",
                 "important_kwd": [],
                 "image_id": "",
                 "similarity": r["score"],

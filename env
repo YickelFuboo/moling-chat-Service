@@ -163,7 +163,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com
 # Web搜索配置 - Web Search
 # =============================================================================
 # Tavily搜索API配置
-TAVILY_API_KEY=your_tavily_api_key
+TAVILY_API_KEY=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
 
 
 # =============================================================================
