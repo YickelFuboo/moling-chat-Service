@@ -102,12 +102,13 @@ class LLMBundle:
         # 根据模型类型调用不同的chat_stream接口
         if self.llm_type == LLMType.CHAT:
             # Chat模型的接口：system_prompt, user_prompt, user_question, history
-            async for txt in self.mdl.chat_stream(
+            stream_generator, _ = await self.mdl.chat_stream(
                 system_prompt=system, 
                 user_prompt=None, 
                 user_question=None, 
                 history=history, 
-                **gen_conf):
+                **gen_conf)
+            async for txt in stream_generator:
                 yield txt
         else:
             raise ValueError(f"不支持的模型类型进行chat_stream操作: {self.llm_type}")

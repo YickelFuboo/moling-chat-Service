@@ -489,7 +489,7 @@ class Dealer:
             page_size (int): 每页大小
             similarity_threshold (float): 相似度阈值，默认为0.2
             vector_similarity_weight (float): 向量相似度权重，默认为0.3
-            top (int): 返回结果数量上限，默认为1024
+            top (int): 向量检索返回的最相似chunk数量，默认为1024
             doc_ids (list[str]): 文档ID列表，可选
             aggs (bool): 是否聚合，默认为True
             rerank_mdl: 重排序模型，可选
@@ -498,6 +498,14 @@ class Dealer:
             
         出参:
             dict: 检索结果，包含总数、文档块列表和文档聚合信息
+
+        执行过程说明：
+            1. 向量检索：top=5，只计算5个最相似的chunks
+            2. 文本检索：同时进行文本匹配检索
+            3. 融合搜索：将向量检索和文本检索结果融合
+            4. 数据库查询：limit=60，从融合结果中返回最多60个chunks
+            5. 重排序：对这60个chunks进行重排序
+            6. 最终截取：page_size=12，截取前12个chunks
         """
         # 1. 初始化返回结果结构
         ranks = {"total": 0, "chunks": [], "doc_aggs": {}}
@@ -610,6 +618,8 @@ class Dealer:
                                                                    key=lambda x: x[1]["count"] * -1)]
         # 11. 确保返回的文档块数量不超过页面大小
         ranks["chunks"] = ranks["chunks"][:page_size]
+        # 更新total为实际返回的chunks数量，保持一致性
+        ranks["total"] = len(ranks["chunks"])
 
         return ranks
 

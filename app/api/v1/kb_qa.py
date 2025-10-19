@@ -5,8 +5,8 @@ from fastapi.responses import StreamingResponse
 import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.database import get_db
-from app.schemes.qa import SingleQaRequest, QaResponse, StreamQaResponse, ChatRequest, KbQueryRequest
-from app.services.qa_service import QAService
+from app.schemes.kb_qa import SingleQaRequest, QaResponse, StreamQaResponse, ChatRequest, KbQueryRequest
+from app.services.kb_qa_service import QAService
 
 router = APIRouter(prefix="/api/qa", tags=["问答服务"])
 

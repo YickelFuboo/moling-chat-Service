@@ -242,7 +242,7 @@ class DeepResearcher:
         # 第2次输出：ans = "<think>我需要搜索一些信息来回答这个问题</think>让我搜索一下：<|begin_search_query|>"
         # 第3次输出：ans = "<think>我需要搜索一些信息来回答这个问题</think>让我搜索一下：<|begin_search_query|>什么是人工智能"
         # 第4次输出：ans = "<think>我需要搜索一些信息来回答这个问题</think>让我搜索一下：<|begin_search_query|>什么是人工智能<|end_search_query|>"
-        for ans in await self.chat_mdl.chat_stream(REASON_PROMPT, msg_history, {"temperature": 0.7}):
+        async for ans in self.chat_mdl.chat_stream(REASON_PROMPT, msg_history, {"temperature": 0.7}):
             # 清理LLM输出，移除思考过程标记
             # 样例：处理前 ans = "<think>我需要搜索一些信息来回答这个问题</think>让我搜索一下：<|begin_search_query|>什么是人工智能<|end_search_query|>"
             # 样例：处理后 ans = "让我搜索一下：<|begin_search_query|>什么是人工智能<|end_search_query|>"
@@ -440,7 +440,7 @@ class DeepResearcher:
                     "content": f'Now you should analyze each web page and find helpful information based on the current search query "{search_query}" and previous reasoning steps.'}]
         
         # 使用LLM分析文档并提取相关信息，流式输出
-        for ans in await self.chat_mdl.chat_stream(prompt, user_msg, {"temperature": 0.7}):
+        async for ans in self.chat_mdl.chat_stream(prompt, user_msg, {"temperature": 0.7}):
             # 清理LLM输出，移除思考过程标记
             ans = re.sub(r"^.*</think>", "", ans, flags=re.DOTALL)
             if not ans:
@@ -498,7 +498,7 @@ class DeepResearcher:
             # 样例：LLM生成的推理内容
             # query_think = "<think>我需要搜索一些信息来回答这个问题</think>让我搜索一下：<|begin_search_query|>什么是人工智能<|end_search_query|>"
             query_think = ""
-            for ans in await self._generate_reasoning(msg_history):
+            async for ans in self._generate_reasoning(msg_history):
                 query_think = ans
                 # 样例：yield输出给用户的内容（已移除<think>标签）
                 # {"answer": "<think>让我搜索一下：什么是人工智能", "reference": {}, "audio_binary": None}
@@ -556,7 +556,7 @@ class DeepResearcher:
                 think += "\n\n"
                 summary_think = ""
                 # 样例：summary_think = "**Final Information**\n\n人工智能（AI）是计算机科学的一个分支..."
-                for ans in await self._extract_relevant_info(truncated_prev_reasoning, search_query, kbinfos):
+                async for ans in self._extract_relevant_info(truncated_prev_reasoning, search_query, kbinfos):
                     summary_think = ans
                     # 样例：yield输出给用户（已移除结果标签）
                     # {"answer": "<think>让我搜索一下：什么是人工智能\n\n> 1. 什么是人工智能\n\n\n\n人工智能（AI）是计算机科学的一个分支...", "reference": {}, "audio_binary": None}

@@ -6,7 +6,7 @@ from functools import partial
 from typing import Dict, Any, Generator, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
-from app.schemes.qa import SingleQaRequest, ChatRequest, ChatMessage
+from app.schemes.kb_qa import SingleQaRequest, ChatRequest, ChatMessage
 from app.services.kb_service import KBService
 from app.services.common.deep_research import DeepResearcher
 from app.rag_core.search_api import RETRIEVALER, KG_RETRIEVALER
@@ -228,7 +228,7 @@ class QAService:
             if enable_deep_research:
                 reasoner = DeepResearcher(
                     chat_mdl,
-                    {"tavily_api_key": settings.TAVILY_API_KEY, "use_kg": enable_knowledge_graph},
+                    {"tavily_api_key": settings.tavily_api_key, "use_kg": enable_knowledge_graph},
                     partial(RETRIEVALER.retrieval, 
                         embd_mdl=embd_mdl, 
                         tenant_ids=tenant_ids, 
@@ -262,7 +262,7 @@ class QAService:
                         similarity_threshold=DEFAULT_SIMILARITY_THRESHOLD,
                         vector_similarity_weight=DEFAULT_VECTOR_SIMILARITY_WEIGHT,
                         doc_ids=doc_ids if doc_ids else None,
-                        #top=DEFAULT_TOP_K,
+                        top=DEFAULT_TOP_K,
                         aggs=False,
                         rank_feature=await label_question(session, question, kbs)
                     )

@@ -172,12 +172,13 @@ async def chat_stream(request: ChatRequest):
             raise HTTPException(status_code=400, detail="无法创建模型实例")
         
         async def generate():
-            async for chunk in model.chat_stream(
+            stream_generator, _ = await model.chat_stream(
                 system_prompt=request.system_prompt,
                 user_prompt=request.user_prompt,
                 user_question=request.user_question
-            ):
-                yield f"data: {chunk.content}\n\n"
+            )
+            async for chunk in stream_generator:
+                yield f"data: {chunk}\n\n"
         
         return StreamingResponse(generate(), media_type="text/plain")
         
