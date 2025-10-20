@@ -4,9 +4,6 @@ import logging
 import os
 import asyncio
 from datetime import datetime
-# 禁用 Numba 调试日志
-os.environ["NUMBA_LOGGING"] = "0"
-os.environ["NUMBA_DISABLE_JIT"] = "0"
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse

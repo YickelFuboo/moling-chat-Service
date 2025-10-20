@@ -24,10 +24,6 @@ class Settings(BaseSettings):
 
     tmp_dir: str = Field(default="./tmp", description="临时目录", env="TMP_DIR")
     model_cache_dir: str = Field(default="./model_cache", description="模型缓存目录", env="MODEL_CACHE_DIR")
-    
-    # Numba 配置
-    numba_logging: str = Field(default="0", description="Numba日志级别", env="NUMBA_LOGGING")
-    numba_disable_jit: str = Field(default="0", description="是否禁用Numba JIT", env="NUMBA_DISABLE_JIT")
 
     # 认证配置
     auth_user_service_url: str = Field(default="http://localhost:8000", description="User-Service地址", env="AUTH_USER_SERVICE_URL")
