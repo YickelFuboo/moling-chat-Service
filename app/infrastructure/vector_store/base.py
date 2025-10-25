@@ -223,6 +223,18 @@ class SortField:
             sort_numeric_type=numeric_type.value
         )
 
+class RankFeature(ABC):
+    """排名特征"""
+    def __init__(
+        self,
+        fields: dict[str, Any], # key是字段名，value是排序权重
+        exclude_fields: list[str] = None,
+        field_prefix: str = "",
+    ):
+        self.fields = fields
+        self.exclude_fields = exclude_fields
+        self.field_prefix = field_prefix
+
 
 @dataclass
 class SearchRequest:
@@ -249,7 +261,7 @@ class SearchRequest:
     agg_fields: Optional[list[str]] = None
     
     # 排名特征（保持原始参数名）
-    rank_feature: Optional[dict[str, Any]] = None
+    rank_feature: Optional[RankFeature] = None
 
 
 class VectorStoreConnection(ABC):

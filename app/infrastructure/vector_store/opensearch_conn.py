@@ -8,8 +8,6 @@ import re
 import time
 from opensearchpy import OpenSearch, NotFoundError, ConnectionTimeout, UpdateByQuery, Q, Search, Index
 from opensearchpy.client import IndicesClient
-from app.rag_core.constants import TAG_FLD, PAGERANK_FLD
-from app.rag_core.rag.nlp import rag_tokenizer
 from .base import (
     VectorStoreConnection, 
     SearchRequest, 
@@ -490,9 +488,9 @@ class OSConnection(VectorStoreConnection):
             
             # 添加排名特征
             if request.rank_feature and bqry:
-                for field, score in request.rank_feature.items():
-                    if field != PAGERANK_FLD:
-                        field = f"{TAG_FLD}.{field}"
+                for field, score in request.rank_feature.fields.items():
+                    if field not in request.rank_feature.exclude_fields:
+                        field = f"{request.rank_feature.field_prefix}.{field}"
                     bqry.should.append(Q("rank_feature", field=field, linear={}, boost=score))
             
             # 应用查询
@@ -730,7 +728,7 @@ class OSConnection(VectorStoreConnection):
     SQL
     """
     # 执行SQL
-    async def sql(self, sql: str, fetch_size: int, format: str):
+    async def sql(self, sql: str, fetch_size: int, format: str, tokenize_func=None, fine_grained_tokenize_func=None):
         """
         执行由text-to-sql生成的SQL查询
         在OpenSearch中执行SQL查询，支持分词和格式转换
@@ -738,6 +736,8 @@ class OSConnection(VectorStoreConnection):
             sql: SQL查询语句
             fetch_size: 获取结果数量限制
             format: 返回格式
+            tokenize_func: 基础分词函数，用于对查询值进行分词处理，如果为None则不分词
+            fine_grained_tokenize_func: 细粒度分词函数，用于对已分词的内容进行进一步处理，如果为None则不分词
         Returns:
             Any: 查询结果，失败时返回None
         """
@@ -753,8 +753,12 @@ class OSConnection(VectorStoreConnection):
         token_replacements = []
         for match in re.finditer(r" ([a-z_]+_l?tks)( like | ?= ?)'([^']+)'", processed_sql):
             field_name, operator, value = match.group(1), match.group(2), match.group(3)
-            # 使用rag_tokenizer进行分词处理
-            tokenized_value = rag_tokenizer.fine_grained_tokenize(rag_tokenizer.tokenize(value))
+            
+            # 如果提供了分词函数，则进行分词处理；否则直接使用原值
+            if tokenize_func and fine_grained_tokenize_func:
+                tokenized_value = fine_grained_tokenize_func(tokenize_func(value))
+            else:
+                tokenized_value = value
             match_query = f" MATCH({field_name}, '{tokenized_value}', 'operator=OR;minimum_should_match=30%') "
             
             token_replacements.append((f"{field_name}{operator}'{value}'", match_query))

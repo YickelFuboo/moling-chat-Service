@@ -7,9 +7,11 @@ from dataclasses import dataclass
 import nest_asyncio
 from app.infrastructure.vector_store import VECTOR_STORE_CONN
 from app.infrastructure.vector_store.base import (
-    VectorStoreConnection, SearchRequest, MatchExpr, SortField,
+    VectorStoreConnection, SearchRequest, MatchExpr, SortField, RankFeature,
     SortOrder, SortFieldType, SortMode, 
 )
+from app.rag_core.constants import TAG_FLD, PAGERANK_FLD
+from app.rag_core.rag.nlp import rag_tokenizer
 
 class OrderByExpr(ABC):
     def __init__(self):
@@ -261,6 +263,15 @@ class DocVectorStoreService:
 
                 order_fields.append(sort_field)
 
+            # 处理排名特征
+            rank_feature = None
+            if request.rank_feature:
+                rank_feature = RankFeature(
+                    fields=request.rank_feature,
+                    exclude_fields=[PAGERANK_FLD],
+                    field_prefix=TAG_FLD
+                )
+
         request = SearchRequest(
                     select_fields=selectFields,
                     highlight_fields=highlightFields,
@@ -322,6 +333,6 @@ class DocVectorStoreService:
             fetch_size: 获取结果数量限制
             format: 返回格式 (json, csv, tsv, txt, yaml, cbor, smile)
         """
-        return await self.store_conn.sql(sql, fetch_size, format)
+        return await self.store_conn.sql(sql, fetch_size, format, rag_tokenizer.tokenize, rag_tokenizer.fine_grained_tokenize)
 
 DOC_STORE_CONN = DocVectorStoreService(VECTOR_STORE_CONN)       
