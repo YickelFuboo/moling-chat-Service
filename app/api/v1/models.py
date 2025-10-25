@@ -5,7 +5,7 @@ import io
 import base64
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
-from app.infrastructure.llm.llms import llm_factory, cv_factory, embedding_factory, rerank_factory, stt_factory, tts_factory
+from app.infrastructure.llms import llm_factory, cv_factory, embedding_factory, rerank_factory, stt_factory, tts_factory
 
 
 # 主路由

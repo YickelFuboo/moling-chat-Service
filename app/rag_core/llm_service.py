@@ -1,7 +1,7 @@
 import asyncio
 from typing import Optional
 from enum import StrEnum
-from app.infrastructure.llm.llms import llm_factory, cv_factory, tts_factory, embedding_factory, rerank_factory, stt_factory
+from app.infrastructure.llms import llm_factory, cv_factory, tts_factory, embedding_factory, rerank_factory, stt_factory
 
 
 class LLMType(StrEnum):

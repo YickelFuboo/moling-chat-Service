@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from timeit import default_timer as timer
 from app.models import Document, KB
 from app.infrastructure.database import get_db
-from app.infrastructure.llm.llms import llm_factory, embedding_factory
+from app.infrastructure.llms import llm_factory, embedding_factory
 from app.infrastructure.storage import STORAGE_CONN
 from app.infrastructure.vector_store import VECTOR_STORE_CONN
 from app.utils.progress_callback import ProgressCallback

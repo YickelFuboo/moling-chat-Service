@@ -8,8 +8,8 @@ import uuid
 from app.models import KB
 from app.constants.common import KBConstants
 from app.infrastructure.database import get_db
-from app.infrastructure.llm.llms import embedding_factory
-from app.infrastructure.llm.llms import rerank_factory
+from app.infrastructure.llms import embedding_factory
+from app.infrastructure.llms import rerank_factory
 from app.rag_core.utils import ParserType
 from app.services.common.doc_vector_store_service import DOC_STORE_CONN
 from app.rag_core.constants import PAGERANK_FLD
